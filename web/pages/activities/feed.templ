@@ -1,0 +1,60 @@
+package activities
+
+import "leadforge/web/components"
+
+templ Feed(p PageMeta, d *FeedData) {
+	@components.PageHeader("Activities", "Everything happening across leads, deals and tasks.")
+	<div class="card bg-white border border-line rounded-xl shadow-xs">
+		<form method="get" action="/activities" class="px-4 py-3 border-b border-line bg-[#fafbfd] flex gap-2.5">
+			<select name="kind" class="input h-8 rounded-lg border border-line bg-white px-2 text-[13px]" onchange="this.form.submit()">
+				<option value="">All activity</option>
+				for _, k := range d.Kinds {
+					if k == d.Kind {
+						<option value={ k } selected>{ k }</option>
+					} else {
+						<option value={ k }>{ k }</option>
+					}
+				}
+			</select>
+		</form>
+		<div class="p-4 space-y-1">
+			for _, a := range d.Items {
+				<div class="flex gap-3 py-2 border-b border-[#f0f1f6] last:border-0 text-[13px]">
+					<span class="mt-0.5 shrink-0">@components.Icon(iconFor(a.Kind), "w-4 h-4 text-ink-3")</span>
+					<div class="min-w-0 flex-1">
+						if a.LeadID != "" {
+							<a href={ templ.URL("/leads/" + a.LeadID) } class="text-ink hover:text-brand-700">{ a.Subject }</a>
+						} else {
+							<span class="text-ink">{ a.Subject }</span>
+						}
+						<div class="text-[11.5px] text-ink-3">{ a.Kind } · { a.Who } · { a.When }</div>
+					</div>
+				</div>
+			}
+		</div>
+		if len(d.Items) == 0 {
+			<div class="p-10">@components.EmptyState("activity", "No activity yet", "Activity appears as searches run and reps work leads.", nil)</div>
+		}
+	</div>
+}
+
+func iconFor(kind string) string {
+	switch kind {
+	case "lead.created":
+		return "plus"
+	case "lead.qualified":
+		return "flame"
+	case "lead.enriched":
+		return "zap"
+	case "lead.updated":
+		return "pencil"
+	case "email.sent", "reply.received":
+		return "mail"
+	case "task.created":
+		return "check-square"
+	case "deal.created", "deal.stage_changed", "deal.won":
+		return "handshake"
+	default:
+		return "activity"
+	}
+}

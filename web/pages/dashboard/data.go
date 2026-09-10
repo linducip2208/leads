@@ -262,6 +262,19 @@ func GlobalSearch(ctx context.Context, pool *pgxpool.Pool, tenantID, q string) [
 		for rows.Next() {
 			var r SearchResult
 			_ = rows.Scan(&r.ID, &r.Text, &r.Sub, &r.Type)
+			r.Href = "/companies/" + r.ID
+			out = append(out, r)
+		}
+		rows.Close()
+	}
+	rows, err = pool.Query(ctx, `
+		SELECT l.id::text, c.name, COALESCE(c.city,'') || ' · ' || l.lead_score::text, 'Lead' FROM leads l
+		JOIN companies c ON c.id = l.company_id
+		WHERE l.tenant_id = $1 AND (c.name ILIKE $2 OR c.domain ILIKE $2) AND l.status <> 'archived' LIMIT 5`, tenantID, like)
+	if err == nil {
+		for rows.Next() {
+			var r SearchResult
+			_ = rows.Scan(&r.ID, &r.Text, &r.Sub, &r.Type)
 			r.Href = "/leads/" + r.ID
 			out = append(out, r)
 		}
@@ -274,7 +287,7 @@ func GlobalSearch(ctx context.Context, pool *pgxpool.Pool, tenantID, q string) [
 		for rows.Next() {
 			var r SearchResult
 			_ = rows.Scan(&r.ID, &r.Text, &r.Sub, &r.Type)
-			r.Href = "/people"
+			r.Href = "/people/" + r.ID
 			out = append(out, r)
 		}
 		rows.Close()
@@ -286,19 +299,7 @@ func GlobalSearch(ctx context.Context, pool *pgxpool.Pool, tenantID, q string) [
 		for rows.Next() {
 			var r SearchResult
 			_ = rows.Scan(&r.ID, &r.Text, &r.Sub, &r.Type)
-			r.Href = "/deals"
-			out = append(out, r)
-		}
-		rows.Close()
-	}
-	rows, err = pool.Query(ctx, `
-		SELECT id::text, name, COALESCE(status,''), 'Campaign' FROM campaigns
-		WHERE tenant_id = $1 AND name ILIKE $2 LIMIT 5`, tenantID, like)
-	if err == nil {
-		for rows.Next() {
-			var r SearchResult
-			_ = rows.Scan(&r.ID, &r.Text, &r.Sub, &r.Type)
-			r.Href = "/campaigns"
+			r.Href = "/deals/" + r.ID
 			out = append(out, r)
 		}
 		rows.Close()

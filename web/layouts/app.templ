@@ -43,43 +43,14 @@ func navGroups() []navGroup {
 			{Label: "Tasks", Href: "/tasks", Icon: "check-square", Perm: "task.manage"},
 			{Label: "Activities", Href: "/activities", Icon: "activity", Perm: "lead.read"},
 		}},
-		{Label: "Engage", Items: []navItem{
-			{Label: "Campaigns", Href: "/campaigns", Icon: "megaphone", Perm: "campaign.create"},
-			{Label: "Sequences", Href: "/sequences", Icon: "list-checks", Perm: "campaign.create"},
-			{Label: "Templates", Href: "/templates", Icon: "mail", Perm: "campaign.create"},
-			{Label: "Inbox", Href: "/inbox", Icon: "inbox", Perm: "lead.read"},
-		}},
 		{Label: "Intelligence", Items: []navItem{
 			{Label: "Enrichment", Href: "/enrichment", Icon: "zap", Perm: "lead.read"},
 			{Label: "Lead Scoring", Href: "/scoring", Icon: "gauge", Perm: "lead.read"},
 			{Label: "ICP", Href: "/icp", Icon: "target", Perm: "lead.read"},
-			{Label: "AI Analysis", Href: "/ai", Icon: "brain", Perm: "ai.use"},
-		}},
-		{Label: "Analytics", Items: []navItem{
-			{Label: "Leads", Href: "/analytics/leads", Icon: "bar-chart-3", Perm: "lead.read"},
-			{Label: "Campaigns", Href: "/analytics/campaigns", Icon: "megaphone", Perm: "lead.read"},
-			{Label: "Sales", Href: "/analytics/sales", Icon: "trending-up", Perm: "deal.manage"},
-			{Label: "Sources", Href: "/analytics/sources", Icon: "radar", Perm: "lead.read"},
-		}},
-		{Label: "Settings", Items: []navItem{
-			{Label: "Workspace", Href: "/settings/workspace", Icon: "briefcase", Perm: "tenant.manage"},
-			{Label: "Members", Href: "/settings/members", Icon: "user-plus", Perm: "team.manage"},
-			{Label: "Roles", Href: "/settings/roles", Icon: "shield", Perm: "team.manage"},
-			{Label: "Email Accounts", Href: "/settings/email-accounts", Icon: "mail", Perm: "integration.manage"},
-			{Label: "Integrations", Href: "/settings/integrations", Icon: "webhook", Perm: "integration.manage"},
-			{Label: "API Keys", Href: "/settings/api-keys", Icon: "key", Perm: "integration.manage"},
-			{Label: "Webhooks", Href: "/settings/webhooks", Icon: "webhook", Perm: "integration.manage"},
-			{Label: "Billing", Href: "/settings/billing", Icon: "credit-card", Perm: "billing.manage"},
-			{Label: "White Label", Href: "/settings/white-label", Icon: "palette", Perm: "tenant.manage"},
 		}},
 		{Label: "Super Admin", Items: []navItem{
-			{Label: "Tenants", Href: "/admin/tenants", Icon: "briefcase", Perm: "admin.platform"},
-			{Label: "Plans", Href: "/admin/plans", Icon: "layers", Perm: "admin.platform"},
-			{Label: "Users", Href: "/admin/users", Icon: "users", Perm: "admin.platform"},
-			{Label: "Usage", Href: "/admin/usage", Icon: "bar-chart-3", Perm: "admin.platform"},
 			{Label: "Queue", Href: "/admin/queue", Icon: "cpu", Perm: "admin.platform"},
 			{Label: "Crawlers", Href: "/admin/crawlers", Icon: "globe", Perm: "admin.platform"},
-			{Label: "Logs", Href: "/admin/logs", Icon: "file-text", Perm: "admin.platform"},
 			{Label: "System Health", Href: "/admin/health", Icon: "server", Perm: "admin.platform"},
 		}},
 	}
@@ -213,9 +184,9 @@ templ AppShell(d *webapp.Renderer, id *webapp.Identity, page webapp.Page, conten
 				</main>
 			</div>
 		</div>
-		<form id="kanban-move-form" class="hidden" hx-post="/pipeline/move" hx-target="closest .kanban-col" hx-swap="outerHTML">
+		<form id="kanban-move-form" class="hidden" hx-post="/pipeline/move" hx-swap="none">
 			<input type="hidden" name="_token" value={ page.CSRFToken }/>
-			<input type="hidden" name="lead_id"/>
+			<input type="hidden" name="deal_id"/>
 			<input type="hidden" name="stage_id"/>
 		</form>
 	</body>

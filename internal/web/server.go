@@ -10,6 +10,8 @@ import (
 	"leadforge/internal/csrf"
 	"leadforge/internal/flash"
 	"leadforge/internal/httpx"
+	"leadforge/internal/queue"
+	"leadforge/internal/search"
 	"leadforge/internal/session"
 	"leadforge/internal/webapp"
 	"leadforge/web/layouts"
@@ -25,14 +27,22 @@ type Server struct {
 	CSRF    *csrf.Manager
 	Router  *webapp.Router
 	Ren     *webapp.Renderer
+	Queue   *queue.Client
+	Runner  *search.Runner
 }
 
 // Config is the web server config subset.
 type Config struct {
-	AppName string
-	Env     string
-	Addr    string
-	AppURL  string
+	AppName       string
+	Env           string
+	Addr          string
+	AppURL        string
+	RedisAddr     string
+	CrawlWorkers  int
+	CrawlDomain   int
+	CrawlTimeout  string
+	CrawlMaxPages int
+	CrawlMaxDepth int
 }
 
 // New builds the server with all routes registered.

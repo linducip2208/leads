@@ -200,11 +200,11 @@ func HelpPage(p PageMeta) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = helpCard("kanban", "3. Work your pipeline", "Drag leads into your CRM pipeline, track deals through stages and schedule follow-up tasks.", "/pipeline").Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = helpCard("kanban", "3. Work your pipeline", "Drag deals through pipeline stages, track values and schedule follow-up tasks.", "/pipeline").Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = helpCard("megaphone", "4. Run outreach", "Build sequences, connect an SMTP account and launch campaigns with suppression and bounce protection.", "/campaigns").Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = helpCard("filter", "4. Organize & act", "Segment hot leads into lists and convert the best ones into pipeline deals.", "/segments").Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

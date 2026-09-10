@@ -1,0 +1,71 @@
+package icp
+
+import (
+	"strconv"
+
+	"leadforge/web/components"
+)
+
+templ Page(p PageMeta, d *PageData) {
+	@components.PageHeader("Ideal Customer Profiles", "Define who you sell to — pick an ICP right inside Lead Finder.")
+	if d.Form.Error != "" {
+		<div class="mb-4 rounded-lg border border-red-200 bg-red-50 px-3.5 py-2.5 text-[13px] text-red-800">{ d.Form.Error }</div>
+	}
+	<div class="grid gap-4 lg:grid-cols-[1fr_380px]">
+		<div class="card bg-white border border-line rounded-xl shadow-xs overflow-hidden h-fit">
+			<table class="tbl w-full text-[13px]">
+				<thead><tr><th>Name</th><th>Criteria</th><th>Default</th><th class="text-right">Actions</th></tr></thead>
+				<tbody>
+					for _, it := range d.Items {
+						<tr>
+							<td class="font-medium">{ it.Name }</td>
+							<td class="text-ink-2 max-w-[380px] truncate">{ it.Summary }</td>
+							<td>
+								if it.IsDefault {
+									@components.Badge("default", "brand")
+								}
+							</td>
+							<td class="text-right whitespace-nowrap">
+								<a href={ templ.URL("/icp?edit=" + it.ID) } class="h-7 px-2 inline-flex items-center rounded-md border border-line text-[12px] hover:bg-[#f6f7fb]">Edit</a>
+								<form method="post" action={ templ.URL("/icp/" + it.ID + "/delete") } class="inline ml-1" data-confirm="Delete this ICP?">
+									<input type="hidden" name="_token" value={ p.CSRFToken }/>
+									<button class="h-7 px-2 rounded-md border border-line text-[12px] text-red-700 hover:bg-red-50">Delete</button>
+								</form>
+							</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+			if len(d.Items) == 0 {
+				<div class="p-6 text-center text-[13px] text-ink-3">No ICPs yet — describe your best customer.</div>
+			}
+		</div>
+		<aside class="card bg-white border border-line rounded-xl shadow-xs p-4 h-fit">
+			<h2 class="text-[14px] font-semibold mb-3">
+				if d.Form.ID != "" {
+					Edit ICP
+				} else {
+					New ICP
+				}
+			</h2>
+			<form method="post" action="/icp" class="space-y-3">
+				<input type="hidden" name="_token" value={ p.CSRFToken }/>
+				<input type="hidden" name="id" value={ d.Form.ID }/>
+				@components.Input("name", "Name", d.Form.Name, "e.g. Construction Jakarta", "text", true)
+				@components.Input("industry", "Industry", d.Form.Industry, "", "text", false)
+				<div class="grid grid-cols-2 gap-3">
+					@components.Input("country", "Country", d.Form.Country, "Indonesia", "text", false)
+					@components.Input("province", "Province", d.Form.Province, "", "text", false)
+				</div>
+				<div class="grid grid-cols-2 gap-3">
+					@components.Input("city", "City", d.Form.City, "", "text", false)
+					@components.Select("employee_range", "Employee range", []string{"|Any", "1-10|1–10", "11-50|11–50", "51-200|51–200", "201-500|201–500", "500+|500+"}, d.Form.Employee)
+				</div>
+				@components.Input("keywords", "Keywords (comma separated)", d.Form.Keywords, "", "text", false)
+				@components.Select("min_score", "Minimum score", []string{"0|No minimum", "50|50+", "70|70+", "90|90+"}, strconv.Itoa(d.Form.MinScore))
+				@components.Checkbox("is_default", "Default ICP", d.Form.IsDefault)
+				<button class="h-9 w-full rounded-lg bg-brand-600 text-white text-[13px] font-medium hover:bg-brand-700">Save ICP</button>
+			</form>
+		</aside>
+	</div>
+}

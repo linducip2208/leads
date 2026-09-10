@@ -1,0 +1,116 @@
+package companies
+
+import "leadforge/web/components"
+
+templ Detail(p PageMeta, d *DetailData) {
+	@components.PageHeader(d.Name, "Company profile with contacts, leads and deals.")
+	<div class="grid gap-4 lg:grid-cols-[1fr_360px]">
+		<div class="space-y-4 min-w-0">
+			<div class="card bg-white border border-line rounded-xl shadow-xs p-5">
+				<div class="flex items-center gap-3">
+					@components.ScoreBadge(d.Score)
+					<span class="text-[12.5px] text-ink-3">via { d.Source } · since { d.Created }</span>
+				</div>
+				<div class="mt-4 grid gap-4 sm:grid-cols-2">
+					<div>
+						@components.SectionTitle("Profile")
+						@components.KV("Industry", d.Form.Industry)
+						@components.KV("Website", d.Form.Website)
+						@components.KV("Phone", d.Form.Phone)
+						@components.KV("Address", d.Form.Address)
+						@components.KV("City", d.Form.City)
+						@components.KV("Province", d.Form.Province)
+						@components.KV("Country", d.Form.Country)
+					</div>
+					<div>
+						@components.SectionTitle("Contacts (" + itoa(len(d.Contacts)) + ")")
+						for _, c := range d.Contacts {
+							<div class="py-1.5 border-b border-[#f0f1f6] last:border-0 text-[13px]">
+								<a href={ templ.URL("/people/" + c.ID) } class="font-medium hover:text-brand-700">{ c.Name }</a>
+								<div class="text-[12px] text-ink-3">{ c.Title } · { c.Email } · { c.Phone }</div>
+							</div>
+						}
+						if len(d.Contacts) == 0 {
+							<p class="text-[13px] text-ink-3">No contacts yet.</p>
+						}
+						@components.SectionTitle("Leads (" + itoa(len(d.Leads)) + ")")
+						for _, l := range d.Leads {
+							<div class="py-1 text-[13px]">
+								<a href={ templ.URL("/leads/" + l.ID) } class="hover:text-brand-700">Lead { shortID(l.ID) }…</a>
+								<span class="text-ink-3"> · { l.Status } · { itoa(l.Score) }</span>
+							</div>
+						}
+					</div>
+				</div>
+			</div>
+			if len(d.Deals) > 0 {
+				<div class="card bg-white border border-line rounded-xl shadow-xs p-5">
+					<h2 class="text-[14px] font-semibold">Deals</h2>
+					<div class="mt-2 divide-y divide-[#f0f1f6]">
+						for _, dl := range d.Deals {
+							<a href={ templ.URL("/deals/" + dl.ID) } class="flex items-center justify-between py-2 text-[13px]">
+								<span class="font-medium hover:text-brand-700">{ dl.Title }</span>
+								<span class="text-ink-3">{ dl.Stage } · { dl.Value }</span>
+							</a>
+						}
+					</div>
+				</div>
+			}
+		</div>
+		<aside class="space-y-4">
+			<div class="card bg-white border border-line rounded-xl shadow-xs p-4">
+				<h2 class="text-[14px] font-semibold mb-3">Edit company</h2>
+				if d.Form.Error != "" {
+					<div class="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[12.5px] text-red-800">{ d.Form.Error }</div>
+				}
+				<form method="post" action={ templ.URL("/companies/" + d.ID) } class="space-y-3">
+					<input type="hidden" name="_token" value={ p.CSRFToken }/>
+					@components.Input("name", "Name", d.Form.Name, "", "text", true)
+					@components.Input("industry", "Industry", d.Form.Industry, "", "text", false)
+					@components.Input("website", "Website", d.Form.Website, "https://…", "text", false)
+					@components.Input("phone", "Phone", d.Form.Phone, "", "text", false)
+					<div class="grid grid-cols-2 gap-3">
+						@components.Input("city", "City", d.Form.City, "", "text", false)
+						@components.Input("province", "Province", d.Form.Province, "", "text", false)
+					</div>
+					@components.Input("address", "Address", d.Form.Address, "", "text", false)
+					<div class="space-y-1.5">
+						<label for="owner_id" class="block text-[13px] font-medium text-ink-2">Owner</label>
+						<select id="owner_id" name="owner_id" class="input h-9 w-full rounded-lg border border-line bg-white px-2.5 text-[13px]">
+							<option value="">Unassigned</option>
+							for _, o := range d.Owners {
+								if o.Value == d.Form.OwnerID {
+									<option value={ o.Value } selected>{ o.Label }</option>
+								} else {
+									<option value={ o.Value }>{ o.Label }</option>
+								}
+							}
+						</select>
+					</div>
+					<button class="h-9 w-full rounded-lg bg-ink text-white text-[13px] font-medium">Save changes</button>
+				</form>
+			</div>
+		</aside>
+	</div>
+}
+
+templ New(p PageMeta, d *DetailData) {
+	@components.PageHeader("Add Company", "Create a company manually — a lead is created alongside it.")
+	<div class="card bg-white border border-line rounded-xl shadow-xs p-5 max-w-xl">
+		if d.Form.Error != "" {
+			<div class="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[12.5px] text-red-800">{ d.Form.Error }</div>
+		}
+		<form method="post" action="/companies" class="space-y-3">
+			<input type="hidden" name="_token" value={ p.CSRFToken }/>
+			@components.Input("name", "Name", d.Form.Name, "PT Contoh", "text", true)
+			@components.Input("industry", "Industry", d.Form.Industry, "", "text", false)
+			@components.Input("website", "Website", d.Form.Website, "https://…", "text", false)
+			@components.Input("phone", "Phone", d.Form.Phone, "", "text", false)
+			<div class="grid grid-cols-2 gap-3">
+				@components.Input("city", "City", d.Form.City, "", "text", false)
+				@components.Input("province", "Province", d.Form.Province, "", "text", false)
+			</div>
+			<button class="h-9 px-4 rounded-lg bg-brand-600 text-white text-[13px] font-medium hover:bg-brand-700">Create company</button>
+		</form>
+	</div>
+}

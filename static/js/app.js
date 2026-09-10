@@ -70,8 +70,8 @@ document.addEventListener("DOMContentLoaded", function () {
   var cols = document.querySelectorAll("[data-stage-dropzone]");
   cards.forEach(function (c) {
     c.addEventListener("dragstart", function (e) {
-      e.dataTransfer.setData("text/lead", c.getAttribute("data-lead-id"));
-      if (e.dataTransfer.setData) e.dataTransfer.setData("text/plain", c.getAttribute("data-lead-id"));
+      e.dataTransfer.setData("text/deal", c.getAttribute("data-deal-id"));
+      if (e.dataTransfer.setData) e.dataTransfer.setData("text/plain", c.getAttribute("data-deal-id"));
     });
   });
   cols.forEach(function (col) {
@@ -80,18 +80,30 @@ document.addEventListener("DOMContentLoaded", function () {
     col.addEventListener("drop", function (e) {
       e.preventDefault();
       col.classList.remove("kanban-placeholder");
-      var leadId = e.dataTransfer.getData("text/lead") || e.dataTransfer.getData("text/plain");
+      var dealId = e.dataTransfer.getData("text/deal") || e.dataTransfer.getData("text/plain");
       var stage = col.getAttribute("data-stage-id");
-      if (leadId && stage) {
+      if (dealId && stage) {
         var form = document.getElementById("kanban-move-form");
         if (form) {
-          form.querySelector("[name=lead_id]").value = leadId;
+          form.querySelector("[name=deal_id]").value = dealId;
           form.querySelector("[name=stage_id]").value = stage;
           htmx.trigger(form, "submit");
         }
       }
     });
   });
+});
+
+if (window.htmx) {
+  document.body.addEventListener("kanbanMoved", function () { location.reload(); });
+}
+
+// Clickable rows/cards via data-href (ignores clicks on links/controls)
+document.addEventListener("click", function (e) {
+  if (!e.target || !e.target.closest) return;
+  if (e.target.closest("a,button,input,select,textarea,summary")) return;
+  var t = e.target.closest("[data-href]");
+  if (t) location.href = t.getAttribute("data-href");
 });
 
 // Keyboard: Ctrl+K focus global search
@@ -110,3 +122,26 @@ document.addEventListener("submit", function (e) {
     if (!window.confirm(f.getAttribute("data-confirm"))) e.preventDefault();
   }
 });
+
+// Lead drawer: open when content swaps in, close on backdrop/button/Escape
+function lfDrawer(open) {
+  var d = document.querySelector(".drawer");
+  var b = document.querySelector(".drawer-backdrop");
+  if (!d) return;
+  d.classList.toggle("translate-x-full", !open);
+  if (b) b.classList.toggle("hidden", !open);
+  document.body.style.overflow = open ? "hidden" : "";
+}
+document.addEventListener("click", function (e) {
+  if (e.target && e.target.closest && e.target.closest("[data-drawer-close]")) lfDrawer(false);
+});
+document.addEventListener("keydown", function (e) {
+  if (e.key === "Escape") lfDrawer(false);
+});
+if (window.htmx) {
+  document.body.addEventListener("htmx:afterSwap", function (e) {
+    if (e.detail && e.detail.target && e.detail.target.id === "drawer-host") {
+      lfDrawer(!!e.detail.target.querySelector(".drawer"));
+    }
+  });
+}

@@ -1,0 +1,60 @@
+package imports
+
+import "leadforge/web/components"
+
+templ Page(p PageMeta, d *PageData) {
+	@components.PageHeader("Imports", "Upload a CSV of companies — columns like name, website, email, phone, city are detected automatically.")
+	if d.Error != "" {
+		<div class="mb-4 rounded-lg border border-red-200 bg-red-50 px-3.5 py-2.5 text-[13px] text-red-800">{ d.Error }</div>
+	}
+	<div class="card bg-white border border-line rounded-xl shadow-xs p-5 max-w-2xl">
+		<form method="post" action="/imports" enctype="multipart/form-data" class="space-y-3">
+			<input type="hidden" name="_token" value={ p.CSRFToken }/>
+			<div class="space-y-1.5">
+				<label for="file" class="block text-[13px] font-medium text-ink-2">CSV file (max 5,000 rows)</label>
+				<input type="file" id="file" name="file" accept=".csv,text/csv" required
+					class="block w-full text-[13px] text-ink-2 file:mr-3 file:h-9 file:px-3.5 file:rounded-lg file:border file:border-line file:bg-white file:text-[13px] file:font-medium hover:file:bg-[#f6f7fb]"/>
+			</div>
+			<button class="h-9 px-4 rounded-lg bg-brand-600 text-white text-[13px] font-medium hover:bg-brand-700">
+				@components.Icon("upload", "w-4 h-4 inline -mt-0.5 mr-1") Import & process
+			</button>
+			<p class="text-[12px] text-ink-3">Rows are normalized, deduplicated, enriched and scored — same pipeline as Lead Finder.</p>
+		</form>
+	</div>
+	<div class="card bg-white border border-line rounded-xl shadow-xs overflow-hidden mt-4">
+		<div class="px-4 py-3 border-b border-line"><h2 class="text-[14px] font-semibold">Past imports</h2></div>
+		<div class="overflow-x-auto">
+			<table class="tbl w-full text-[13px]">
+				<thead><tr><th>File</th><th>Status</th><th class="text-right">Rows</th><th class="text-right">Saved</th><th>Imported</th></tr></thead>
+				<tbody>
+					for _, it := range d.Imports {
+						<tr class="hover:bg-[#f6f7fb] cursor-pointer" data-href={ "/searches/" + it.ID }>
+							<td class="font-medium max-w-[300px] truncate">{ it.Name }</td>
+							<td>@components.StatusBadge(it.Status)</td>
+							<td class="text-right tabular-nums">{ itoa(it.Found) }</td>
+							<td class="text-right tabular-nums">{ itoa(it.Saved) }</td>
+							<td class="text-ink-3 whitespace-nowrap">{ it.Created }</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		</div>
+		if len(d.Imports) == 0 {
+			<div class="p-8 text-center text-[13px] text-ink-3">No imports yet.</div>
+		}
+	</div>
+}
+
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	var b [20]byte
+	i := len(b)
+	for n > 0 {
+		i--
+		b[i] = byte('0' + n%10)
+		n /= 10
+	}
+	return string(b[i:])
+}

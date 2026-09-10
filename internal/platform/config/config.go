@@ -25,6 +25,10 @@ type Config struct {
 	CrawlerWorkers           int
 	CrawlerDomainConcurrency int
 	CrawlerTimeout           time.Duration
+	CrawlerMaxPagesPerSite   int
+	CrawlerMaxDepth          int
+	CrawlerMaxBodyBytes      int64
+	CrawlerAllowPrivate      bool
 
 	AIEnabled bool
 
@@ -58,9 +62,15 @@ func Load() (*Config, error) {
 		c.SessionSecret = "dev-only-insecure-secret-change-me"
 	}
 
-	c.CrawlerWorkers = envInt("CRAWLER_WORKERS", 50)
+	c.CrawlerWorkers = envInt("CRAWLER_WORKERS", 20)
 	c.CrawlerDomainConcurrency = envInt("CRAWLER_DOMAIN_CONCURRENCY", 2)
 	c.CrawlerTimeout = time.Duration(envInt("CRAWLER_TIMEOUT_S", 15)) * time.Second
+	c.CrawlerMaxPagesPerSite = envInt("CRAWLER_MAX_PAGES_PER_SITE", 10)
+	c.CrawlerMaxDepth = envInt("CRAWLER_MAX_DEPTH", 2)
+	c.CrawlerMaxBodyBytes = int64(envInt("CRAWLER_MAX_BODY_MB", 5)) << 20
+	// dev/test override only: allow crawling private/loopback IPs (E2E fixtures).
+	// Never enable in production.
+	c.CrawlerAllowPrivate = envBool("CRAWLER_ALLOW_PRIVATE", false)
 
 	c.AIEnabled = envBool("AI_ENABLED", false)
 

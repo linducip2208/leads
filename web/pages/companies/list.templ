@@ -1,0 +1,83 @@
+package companies
+
+import "leadforge/web/components"
+
+templ List(p PageMeta, d *ListData) {
+	@components.PageHeader("Companies", "Every discovered business in one database.") { @components.LinkButton("/companies/new", "Add Company") }
+	<div class="card bg-white border border-line rounded-xl shadow-xs">
+		<form method="get" action="/companies" class="px-4 py-3 grid gap-2.5 md:grid-cols-5 border-b border-line bg-[#fafbfd]">
+			<input type="search" name="q" value={ d.Filter.Keyword } placeholder="Name or domain…" class="input h-8 rounded-lg border border-line bg-white px-2.5 text-[13px] focus:border-brand-400 focus:outline-none"/>
+			<select name="industry" class="input h-8 rounded-lg border border-line bg-white px-2 text-[13px]">
+				<option value="">All industries</option>
+				for _, o := range d.Industries {
+					if o.Value == d.Filter.Industry {
+						<option value={ o.Value } selected>{ o.Label }</option>
+					} else {
+						<option value={ o.Value }>{ o.Label }</option>
+					}
+				}
+			</select>
+			<input type="text" name="city" value={ d.Filter.City } placeholder="City…" class="input h-8 rounded-lg border border-line bg-white px-2.5 text-[13px] focus:border-brand-400 focus:outline-none"/>
+			<select name="min_score" class="input h-8 rounded-lg border border-line bg-white px-2 text-[13px]">
+				<option value="0">Any score</option>
+				<option value="50" selected?={ d.Filter.MinScore == 50 }>50+</option>
+				<option value="70" selected?={ d.Filter.MinScore == 70 }>70+</option>
+				<option value="90" selected?={ d.Filter.MinScore == 90 }>90+</option>
+			</select>
+			<button class="h-8 px-3 rounded-lg bg-brand-600 text-white text-[13px] font-medium hover:bg-brand-700">Filter</button>
+		</form>
+		<div class="overflow-x-auto">
+			<table class="tbl w-full text-[13px]">
+				<thead><tr><th>Company</th><th>Industry</th><th>Location</th><th>Website</th><th class="text-right">Contacts</th><th class="text-right">Score</th><th>Owner</th><th>Source</th><th>Activity</th></tr></thead>
+				<tbody>
+					for _, it := range d.Items {
+						<tr class="hover:bg-[#f6f7fb] cursor-pointer" data-href={ "/companies/" + it.ID }>
+							<td class="font-medium max-w-[240px] truncate">{ it.Name }</td>
+							<td class="text-ink-2">{ it.Industry }</td>
+							<td class="text-ink-2">{ locLabel(it.City, it.Province) }</td>
+							<td class="max-w-[200px] truncate">
+								if it.Website != "" {
+									<a href={ templ.URL(it.Website) } target="_blank" rel="noopener" onclick="event.stopPropagation()" class="text-brand-600 hover:underline">{ shortHost(it.Website) }</a>
+								}
+							</td>
+							<td class="text-right tabular-nums">{ itoa(it.Contacts) }</td>
+							<td class="text-right">@components.ScoreBadge(it.Score)</td>
+							<td class="text-ink-2">{ it.Owner }</td>
+							<td class="text-ink-3">{ it.Source }</td>
+							<td class="text-ink-3 whitespace-nowrap">{ it.LastActivity }</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		</div>
+		if len(d.Items) == 0 {
+			<div class="p-10">@components.EmptyState("building-2", "No companies yet", "Run a Lead Finder search to discover businesses.", components.LinkButton("/finder", "Find Leads"))</div>
+		} else if d.HasMore {
+			<div class="p-3 text-center border-t border-line">
+				<a href={ templ.URL(d.Filter.ListURL(d.NextCursor)) } class="inline-block h-8 px-4 leading-8 rounded-lg border border-line text-[13px] font-medium hover:bg-[#f6f7fb]">Load more</a>
+			</div>
+		}
+	</div>
+}
+
+func locLabel(city, province string) string {
+	if city != "" && province != "" && city != province {
+		return city + ", " + province
+	}
+	if city != "" {
+		return city
+	}
+	return province
+}
+
+func shortHost(website string) string {
+	s := website
+	for _, p := range []string{"https://", "http://"} {
+		s = trimPrefixLib(s, p)
+	}
+	s = trimPrefixLib(s, "www.")
+	if i := indexOfLib(s, "/"); i >= 0 {
+		s = s[:i]
+	}
+	return s
+}

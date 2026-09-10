@@ -15,6 +15,8 @@ import (
 	"leadforge/internal/auth"
 	"leadforge/internal/csrf"
 	"leadforge/internal/platform"
+	"leadforge/internal/queue"
+	"leadforge/internal/search"
 	"leadforge/internal/session"
 	"leadforge/internal/web"
 )
@@ -30,16 +32,31 @@ func main() {
 	}
 	defer cont.Close()
 
+	if err := auth.NewService(cont.PG).EnsureSystemRoles(ctx); err != nil {
+		cont.Log.Warn("ensure system roles", "err", err)
+	}
+
 	sess := session.NewManager(cont.PG, cont.Cfg.SessionSecret, cont.Cfg.SessionTTL, cont.Cfg.IsProd())
 	csrfMgr := csrf.New(cont.Cfg.SessionSecret)
 	authSvc := auth.NewService(cont.PG)
 
+	ws := web.New(web.Config{
+		AppName: cont.Cfg.AppName, Env: cont.Cfg.Env, Addr: cont.Cfg.Addr,
+		AppURL: cont.Cfg.AppURL, RedisAddr: cont.Cfg.RedisAddr,
+		CrawlWorkers: cont.Cfg.CrawlerWorkers, CrawlDomain: cont.Cfg.CrawlerDomainConcurrency,
+		CrawlTimeout: cont.Cfg.CrawlerTimeout.String(), CrawlMaxPages: cont.Cfg.CrawlerMaxPagesPerSite,
+		CrawlMaxDepth: cont.Cfg.CrawlerMaxDepth,
+	}, cont.Log, cont.PG, authSvc, sess, csrfMgr)
+	ws.Queue = queue.NewClient(cont.Cfg.RedisAddr)
+	defer ws.Queue.Close()
+	ws.Runner = search.NewRunner(search.NewDeps(cont.PG, cont.Cfg, cont.Log, os.Getenv("GOOGLE_PLACES_API_KEY")))
+
 	srv := &http.Server{
 		Addr:              cont.Cfg.Addr,
-		Handler:           web.New(web.Config{AppName: cont.Cfg.AppName, Env: cont.Cfg.Env, Addr: cont.Cfg.Addr, AppURL: cont.Cfg.AppURL}, cont.Log, cont.PG, authSvc, sess, csrfMgr).Handler(),
+		Handler:           ws.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       60 * time.Second,
-		WriteTimeout:      120 * time.Second,
+		WriteTimeout:      300 * time.Second, // SSE progress streams
 		IdleTimeout:       120 * time.Second,
 		MaxHeaderBytes:    1 << 20,
 	}

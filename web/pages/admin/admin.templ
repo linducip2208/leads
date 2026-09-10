@@ -1,0 +1,134 @@
+package admin
+
+import (
+	"strconv"
+
+	"leadforge/web/components"
+)
+
+templ Health(p PageMeta, d *HealthData) {
+	@components.PageHeader("System Health", "Live status of every critical dependency.")
+	<div class="grid gap-4 lg:grid-cols-[1fr_360px]">
+		<div class="card bg-white border border-line rounded-xl shadow-xs overflow-hidden h-fit">
+			<table class="tbl w-full text-[13px]">
+				<thead><tr><th>Service</th><th>Status</th><th>Detail</th><th class="text-right">Latency</th></tr></thead>
+				<tbody>
+					for _, r := range d.Rows {
+						<tr>
+							<td class="font-medium">{ r.Name }</td>
+							<td>
+								if r.Status == "ok" {
+									@components.Badge("ok", "green")
+								} else {
+									@components.Badge(r.Status, "red")
+								}
+							</td>
+							<td class="text-ink-2 max-w-[360px] truncate">{ r.Detail }</td>
+							<td class="text-right tabular-nums text-ink-2">{ r.Latency }</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		</div>
+		<aside class="card bg-white border border-line rounded-xl shadow-xs p-4 h-fit">
+			@components.SectionTitle("Runtime")
+			@components.KV("Uptime", d.Uptime)
+			@components.KV("Go version", d.GoVersion)
+			@components.KV("Goroutines", strconv.Itoa(d.Goroutines))
+			@components.KV("Memory", strconv.FormatInt(d.MemoryMB, 10)+" MB")
+		</aside>
+	</div>
+}
+
+templ Queue(p PageMeta, d *QueueData) {
+	@components.PageHeader("Queue", "Asynq queues on "+d.RedisAddr+".")
+	<div class="card bg-white border border-line rounded-xl shadow-xs p-4 mb-4 flex flex-wrap gap-6 text-[13px]">
+		<div>Worker: <span class="font-medium">{ d.WorkerHB }</span></div>
+		<div>Scheduler: <span class="font-medium">{ d.SchedHB }</span></div>
+	</div>
+	<div class="card bg-white border border-line rounded-xl shadow-xs overflow-hidden">
+		<div class="overflow-x-auto">
+			<table class="tbl w-full text-[13px]">
+				<thead><tr><th>Queue</th><th class="text-right">Pending</th><th class="text-right">Active</th><th class="text-right">Scheduled</th><th class="text-right">Retry</th><th class="text-right">Failed</th><th class="text-right">Processed</th></tr></thead>
+				<tbody>
+					for _, r := range d.Rows {
+						<tr>
+							<td class="font-medium">{ r.Queue }</td>
+							<td class="text-right tabular-nums">{ itoa(r.Pending) }</td>
+							<td class="text-right tabular-nums">{ itoa(r.Active) }</td>
+							<td class="text-right tabular-nums">{ itoa(r.Scheduled) }</td>
+							<td class="text-right tabular-nums">{ itoa(r.Retry) }</td>
+							<td class="text-right tabular-nums">{ itoa(r.Failed) }</td>
+							<td class="text-right tabular-nums">{ itoa(r.Processed) }</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		</div>
+	</div>
+}
+
+templ Crawlers(p PageMeta, d *CrawlerData) {
+	@components.PageHeader("Crawlers", "Worker pool, throughput and recent failures.")
+	<div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-4">
+		@miniStat("Pages / min", formatFloat(d.PagesMin))
+		@miniStat("Success rate", formatFloat(d.SuccessRate)+"%")
+		@miniStat("Avg response", itoa(d.AvgMs)+" ms")
+		@miniStat("Pending jobs", itoa(d.PendingJobs))
+	</div>
+	<div class="grid gap-4 lg:grid-cols-2">
+		<div class="card bg-white border border-line rounded-xl shadow-xs p-4">
+			@components.SectionTitle("Pool config")
+			@components.KV("Workers", itoa(d.Workers))
+			@components.KV("Per-domain concurrency", itoa(d.DomainConc))
+			@components.KV("Timeout", d.Timeout)
+			@components.SectionTitle("Active hosts")
+			if len(d.ActiveHosts) == 0 {
+				<p class="text-[13px] text-ink-3">Idle — no recent crawl jobs.</p>
+			} else {
+				for _, h := range d.ActiveHosts {
+					<div class="py-1 text-[13px] border-b border-[#f0f1f6] last:border-0">{ h }</div>
+				}
+			}
+		</div>
+		<div class="card bg-white border border-line rounded-xl shadow-xs p-4">
+			@components.SectionTitle("Recent errors")
+			if len(d.Errors) == 0 {
+				<p class="text-[13px] text-ink-3">No failures recorded.</p>
+			} else {
+				for _, e := range d.Errors {
+					<div class="py-2 border-b border-[#f0f1f6] last:border-0">
+						<div class="text-[12.5px] font-medium break-all">{ e.URL }</div>
+						<div class="text-[12px] text-red-700 break-words">{ e.Error }</div>
+						<div class="text-[11px] text-ink-3">{ e.When }</div>
+					</div>
+				}
+			}
+		</div>
+	</div>
+}
+
+templ miniStat(label, value string) {
+	<div class="card bg-white border border-line rounded-xl shadow-xs p-3">
+		<div class="text-[11px] uppercase tracking-wide text-ink-3">{ label }</div>
+		<div class="mt-0.5 text-[20px] font-semibold tabular-nums">{ value }</div>
+	</div>
+}
+
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	var b [20]byte
+	i := len(b)
+	for n > 0 {
+		i--
+		b[i] = byte('0' + n%10)
+		n /= 10
+	}
+	return string(b[i:])
+}
+
+func formatFloat(f float64) string {
+	return strconv.FormatFloat(f, 'f', 1, 64)
+}

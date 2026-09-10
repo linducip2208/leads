@@ -1,0 +1,117 @@
+// Command worker runs Asynq background jobs: lead searches, maintenance.
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"log/slog"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/hibiken/asynq"
+
+	"leadforge/internal/auth"
+	"leadforge/internal/platform"
+	"leadforge/internal/queue"
+	"leadforge/internal/search"
+	"leadforge/internal/session"
+)
+
+func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	cont, err := platform.NewContainer(ctx)
+	if err != nil {
+		slog.Error("startup failed", "err", err)
+		os.Exit(1)
+	}
+	defer cont.Close()
+	if err := auth.NewService(cont.PG).EnsureSystemRoles(ctx); err != nil {
+		cont.Log.Warn("ensure system roles", "err", err)
+	}
+
+	runner := search.NewRunner(search.NewDeps(cont.PG, cont.Cfg, cont.Log, os.Getenv("GOOGLE_PLACES_API_KEY")))
+	sess := session.NewManager(cont.PG, cont.Cfg.SessionSecret, cont.Cfg.SessionTTL, cont.Cfg.IsProd())
+
+	mux := asynq.NewServeMux()
+	mux.HandleFunc(queue.TypeSearchRun, func(ctx context.Context, t *asynq.Task) error {
+		var p queue.SearchPayload
+		if err := json.Unmarshal(t.Payload(), &p); err != nil || p.SearchID == "" {
+			return nil // poison payload: drop
+		}
+		cont.Log.Info("search run started", "search_id", p.SearchID)
+		if err := runner.Run(ctx, p.SearchID); err != nil {
+			cont.Log.Error("search run failed", "search_id", p.SearchID, "err", err)
+			markSearchFailed(ctx, cont, p.SearchID, err.Error())
+			return err
+		}
+		cont.Log.Info("search run finished", "search_id", p.SearchID)
+		return nil
+	})
+	mux.HandleFunc(queue.TypeSweep, func(ctx context.Context, _ *asynq.Task) error {
+		sess.Sweep(ctx)
+		return nil
+	})
+	mux.HandleFunc(queue.TypeWatchdog, func(ctx context.Context, _ *asynq.Task) error {
+		res, err := cont.PG.Exec(ctx, `
+			UPDATE lead_searches SET status='failed', error='worker lost (watchdog)', finished_at=now(), updated_at=now()
+			WHERE status='running' AND updated_at < now() - interval '30 minutes'`)
+		if err == nil && res.RowsAffected() > 0 {
+			cont.Log.Warn("watchdog marked stalled searches failed", "n", res.RowsAffected())
+		}
+		return err
+	})
+
+	srv := asynq.NewServer(queue.RedisOpt(cont.Cfg.RedisAddr), asynq.Config{
+		Concurrency:     20,
+		Queues:          cont.Cfg.WorkerQueues(),
+		ShutdownTimeout: 30 * time.Second,
+		Logger:          newSlogAdapter(cont.Log),
+		ErrorHandler: asynq.ErrorHandlerFunc(func(ctx context.Context, task *asynq.Task, err error) {
+			cont.Log.Error("task error", "type", task.Type(), "err", err)
+		}),
+	})
+
+	// liveness heartbeat for /admin/health
+	go func() {
+		t := time.NewTicker(10 * time.Second)
+		defer t.Stop()
+		for {
+			_ = queue.Beat(context.WithoutCancel(ctx), cont.Cfg.RedisAddr, "leadforge:worker:hb", 30*time.Second)
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+			}
+		}
+	}()
+
+	cont.Log.Info("worker listening", "redis", cont.Cfg.RedisAddr)
+	if err := srv.Run(mux); err != nil {
+		cont.Log.Error("worker failed", "err", err)
+		os.Exit(1)
+	}
+}
+
+func markSearchFailed(ctx context.Context, cont *platform.Container, searchID, msg string) {
+	if len(msg) > 500 {
+		msg = msg[:500]
+	}
+	_, _ = cont.PG.Exec(ctx, `
+		UPDATE lead_searches SET status='failed', error=$2, finished_at=now(), updated_at=now()
+		WHERE id=$1 AND status IN ('queued','running','paused')`, searchID, msg)
+}
+
+// slogAdapter adapts slog to asynq's logger interface.
+type slogAdapter struct{ log *slog.Logger }
+
+func newSlogAdapter(l *slog.Logger) *slogAdapter { return &slogAdapter{log: l} }
+
+func (a *slogAdapter) Debug(args ...any) { a.log.Debug("asynq", "args", args) }
+func (a *slogAdapter) Info(args ...any)  { a.log.Info("asynq", "args", args) }
+func (a *slogAdapter) Warn(args ...any)  { a.log.Warn("asynq", "args", args) }
+func (a *slogAdapter) Error(args ...any) { a.log.Error("asynq", "args", args) }
+func (a *slogAdapter) Fatal(args ...any) { a.log.Error("asynq fatal", "args", args); os.Exit(1) }

@@ -1,0 +1,38 @@
+package searches
+
+import "leadforge/web/components"
+
+templ List(p PageMeta, d *ListData) {
+	@components.PageHeader("Search History", "Every Lead Finder run with live status and results.") { @components.LinkButton("/finder", "New Search") }
+	<div class="card bg-white border border-line rounded-xl shadow-xs overflow-hidden">
+		<div class="overflow-x-auto">
+			<table class="tbl w-full text-[13px]">
+				<thead>
+					<tr><th>Query</th><th>Industry</th><th>Location</th><th class="text-right">Requested</th><th class="text-right">Found</th><th class="text-right">Unique</th><th class="text-right">Qualified</th><th>Status</th><th>Created</th><th>Duration</th><th>By</th></tr>
+				</thead>
+				<tbody>
+					for _, it := range d.Items {
+						<tr class="hover:bg-[#f6f7fb] cursor-pointer" data-href={ "/searches/" + it.ID }>
+							<td class="font-medium text-ink max-w-[280px] truncate">{ it.Query }</td>
+							<td class="text-ink-2">{ it.Industry }</td>
+							<td class="text-ink-2">{ it.Location }</td>
+							<td class="text-right tabular-nums">{ num(it.Requested) }</td>
+							<td class="text-right tabular-nums">{ num(it.Found) }</td>
+							<td class="text-right tabular-nums">{ num(it.Unique) }</td>
+							<td class="text-right tabular-nums">{ num(it.Qualified) }</td>
+							<td>@components.StatusBadge(it.Status)</td>
+							<td class="text-ink-3 whitespace-nowrap">{ it.Created }</td>
+							<td class="text-ink-3 whitespace-nowrap">{ it.Duration }</td>
+							<td class="text-ink-2">{ it.CreatedBy }</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		</div>
+		if len(d.Items) == 0 {
+			<div class="p-10">
+				@components.EmptyState("history", "No searches yet", "Run your first Lead Finder search to build a prospect list.", components.LinkButton("/finder", "Open Lead Finder"))
+			</div>
+		}
+	</div>
+}

@@ -1,0 +1,50 @@
+package enrichment
+
+import "leadforge/web/components"
+
+templ Page(p PageMeta, d *PageData) {
+	@components.PageHeader("Enrichment", "Website crawl results — emails, phones, socials and technologies per company.")
+	<div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-4">
+		for _, s := range d.Stats {
+			<div class="card bg-white border border-line rounded-xl shadow-xs p-3">
+				<div class="text-[11px] uppercase tracking-wide text-ink-3">{ s.Label }</div>
+				<div class="mt-0.5 text-[20px] font-semibold tabular-nums">{ itoa(s.Value) }</div>
+			</div>
+		}
+	</div>
+	<div class="card bg-white border border-line rounded-xl shadow-xs overflow-hidden">
+		<div class="overflow-x-auto">
+			<table class="tbl w-full text-[13px]">
+				<thead><tr><th>Company</th><th>Kind</th><th>Status</th><th class="text-right">Confidence</th><th>Finished</th></tr></thead>
+				<tbody>
+					for _, r := range d.Runs {
+						<tr class="hover:bg-[#f6f7fb]" data-href={ "/companies/" + r.CompanyID }>
+							<td class="font-medium max-w-[260px] truncate">{ r.Company }</td>
+							<td class="text-ink-2 capitalize">{ r.Kind }</td>
+							<td>@components.StatusBadge(r.Status)</td>
+							<td class="text-right tabular-nums">{ itoa(r.Confidence) }</td>
+							<td class="text-ink-3 whitespace-nowrap">{ r.When }</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		</div>
+		if len(d.Runs) == 0 {
+			<div class="p-10">@components.EmptyState("zap", "No enrichments yet", "Run a Lead Finder search — every crawled site is enriched automatically.", components.LinkButton("/finder", "Find Leads"))</div>
+		}
+	</div>
+}
+
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	var b [20]byte
+	i := len(b)
+	for n > 0 {
+		i--
+		b[i] = byte('0' + n%10)
+		n /= 10
+	}
+	return string(b[i:])
+}

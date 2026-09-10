@@ -1,0 +1,124 @@
+package leads
+
+import (
+	"strconv"
+
+	"leadforge/web/components"
+)
+
+templ List(p PageMeta, d *ListData) {
+	@components.PageHeader("Leads", "Prospects discovered, scored and ready for outreach.") { @components.LinkButton("/finder", "Find Leads") }
+	<div class="card bg-white border border-line rounded-xl shadow-xs">
+		<div class="px-4 pt-3 flex items-center gap-1.5 flex-wrap border-b border-line pb-0">
+			for _, t := range d.Tabs {
+				if t.Active {
+					<a href={ templ.URL(tabURL(d.Filter, t.Value)) } class="px-3 pb-2.5 text-[13px] font-semibold text-brand-700 border-b-2 border-brand-600 -mb-px">{ t.Label } <span class="ml-1 text-[11px] font-medium text-ink-3 tabular-nums">{ strconv.Itoa(t.Count) }</span></a>
+				} else {
+					<a href={ templ.URL(tabURL(d.Filter, t.Value)) } class="px-3 pb-2.5 text-[13px] font-medium text-ink-2 hover:text-ink border-b-2 border-transparent -mb-px">{ t.Label } <span class="ml-1 text-[11px] text-ink-3 tabular-nums">{ strconv.Itoa(t.Count) }</span></a>
+				}
+			}
+		</div>
+		<form method="get" action="/leads" class="px-4 py-3 grid gap-2.5 md:grid-cols-4 lg:grid-cols-6 border-b border-line bg-[#fafbfd]">
+			<input type="hidden" name="tab" value={ d.Filter.Tab }/>
+			<input type="search" name="q" value={ d.Filter.Keyword } placeholder="Keyword…" class="input h-8.5 h-8 rounded-lg border border-line bg-white px-2.5 text-[13px] focus:border-brand-400 focus:outline-none"/>
+			<select name="industry" class="input h-8 rounded-lg border border-line bg-white px-2 text-[13px] focus:border-brand-400 focus:outline-none">
+				<option value="">All industries</option>
+				for _, o := range d.Industries {
+					if o.Value == d.Filter.Industry {
+						<option value={ o.Value } selected>{ o.Label }</option>
+					} else {
+						<option value={ o.Value }>{ o.Label }</option>
+					}
+				}
+			</select>
+			<select name="source" class="input h-8 rounded-lg border border-line bg-white px-2 text-[13px] focus:border-brand-400 focus:outline-none">
+				<option value="">All sources</option>
+				for _, o := range d.Sources {
+					if o.Value == d.Filter.Source {
+						<option value={ o.Value } selected>{ o.Label }</option>
+					} else {
+						<option value={ o.Value }>{ o.Label }</option>
+					}
+				}
+			</select>
+			<select name="min_score" class="input h-8 rounded-lg border border-line bg-white px-2 text-[13px] focus:border-brand-400 focus:outline-none">
+				<option value="0">Any score</option>
+				<option value="50" selected?={ d.Filter.MinScore == 50 }>50+</option>
+				<option value="70" selected?={ d.Filter.MinScore == 70 }>70+</option>
+				<option value="90" selected?={ d.Filter.MinScore == 90 }>90+</option>
+			</select>
+			<input type="text" name="city" value={ d.Filter.City } placeholder="City…" class="input h-8 rounded-lg border border-line bg-white px-2.5 text-[13px] focus:border-brand-400 focus:outline-none"/>
+			<button class="h-8 px-3 rounded-lg bg-brand-600 text-white text-[13px] font-medium hover:bg-brand-700">Filter</button>
+		</form>
+		<form id="bulk-form" method="post" action="/leads/bulk">
+			<input type="hidden" name="_token" value={ p.CSRFToken }/>
+			<input type="hidden" name="redirect" value={ bulkRedirect(d.Filter) }/>
+			<div id="bulk-bar" class="hidden px-4 py-2 border-b border-line bg-brand-50/60 items-center gap-2 text-[13px]">
+				<span id="bulk-count" class="font-medium"></span>
+				<select name="action" class="input h-7 rounded-md border border-line bg-white px-1.5 text-[12.5px]">
+					<option value="archive">Archive</option>
+					<option value="restore">Restore</option>
+					<option value="status_qualified">Mark qualified</option>
+					<option value="status_contacted">Mark contacted</option>
+					<option value="status_new">Mark new</option>
+				</select>
+				<select name="list_id" class="input h-7 rounded-md border border-line bg-white px-1.5 text-[12.5px]">
+					<option value="">No list…</option>
+					for _, l := range d.Lists {
+						<option value={ l.Value }>{ l.Label }</option>
+					}
+				</select>
+				<button class="h-7 px-2.5 rounded-md bg-ink text-white text-[12.5px] font-medium">Apply</button>
+			</div>
+			<div class="overflow-x-auto">
+				<table class="tbl w-full text-[13px]">
+					<thead>
+						<tr><th class="w-8"><input type="checkbox" id="check-all" class="w-4 h-4 accent-brand-600"/></th><th>Company</th><th>Contact</th><th>Industry</th><th>Location</th><th>Email</th><th>Phone</th><th class="text-right">Score</th><th>Status</th><th>Owner</th><th>Source</th><th>Activity</th></tr>
+					</thead>
+					<tbody id="leads-tbody">
+						@leadRows(d.Items)
+					</tbody>
+				</table>
+			</div>
+		</form>
+		if len(d.Items) == 0 {
+			<div class="p-10">
+				@components.EmptyState("database", "Find your first customers", "Start a Lead Finder search and build your first prospect list.", components.LinkButton("/finder", "Find Leads"))
+			</div>
+		} else if d.HasMore {
+			<div class="p-3 text-center border-t border-line">
+				<a href={ templ.URL(moreURL(d.Filter, d.NextCursor)) } class="inline-block h-8 px-4 leading-8 rounded-lg border border-line text-[13px] font-medium hover:bg-[#f6f7fb]">Load more</a>
+			</div>
+		}
+	</div>
+	@components.DrawerHost()
+}
+
+templ leadRows(items []Item) {
+	for _, it := range items {
+		<tr class="hover:bg-[#f6f7fb]">
+			<td><input type="checkbox" name="ids" value={ it.ID } data-row-check class="w-4 h-4 accent-brand-600"/></td>
+			<td class="font-medium max-w-[220px] truncate"><a class="hover:text-brand-700 hover:underline cursor-pointer" hx-get={ "/leads/" + it.ID + "/drawer" } hx-target="#drawer-host" hx-swap="innerHTML">{ it.Company }</a></td>
+			<td class="text-ink-2 max-w-[180px] truncate">{ it.Contact }</td>
+			<td class="text-ink-2">{ it.Industry }</td>
+			<td class="text-ink-2">{ locLabel(it.City, it.Province) }</td>
+			<td class="text-ink-2 max-w-[200px] truncate">{ it.Email }</td>
+			<td class="text-ink-2 whitespace-nowrap">{ it.Phone }</td>
+			<td class="text-right">@components.ScoreBadge(it.Score)</td>
+			<td>@components.StatusBadge(it.Status)</td>
+			<td class="text-ink-2">{ it.Owner }</td>
+			<td class="text-ink-3">{ it.Source }</td>
+			<td class="text-ink-3 whitespace-nowrap">{ it.LastActivity }</td>
+		</tr>
+	}
+}
+
+func locLabel(city, province string) string {
+	if city != "" && province != "" && city != province {
+		return city + ", " + province
+	}
+	if city != "" {
+		return city
+	}
+	return province
+}

@@ -1,0 +1,92 @@
+package finder
+
+import (
+	"strconv"
+
+	"leadforge/web/components"
+)
+
+templ Page(p PageMeta, d *PageData) {
+	@components.PageHeader("Find your next customers", "Search companies, industries or keywords — crawlers collect public data into your workspace.")
+	if d.Form.Error != "" {
+		<div class="mb-4 rounded-lg border border-red-200 bg-red-50 px-3.5 py-2.5 text-[13px] text-red-800">{ d.Form.Error }</div>
+	}
+	<form method="post" action="/finder/search" class="space-y-4">
+		<input type="hidden" name="_token" value={ p.CSRFToken }/>
+		<div class="card bg-white border border-line rounded-xl shadow-xs p-5">
+			<div>
+				<label for="keyword" class="block text-[13px] font-medium text-ink-2">Search companies, industries or keywords</label>
+				<input type="search" id="keyword" name="keyword" value={ d.Form.Keyword } placeholder="e.g. software house, konstruksi, klinik gigi…"
+					class="mt-1.5 h-12 w-full rounded-xl border border-line bg-white px-4 text-[15px] text-ink placeholder:text-ink-3 focus:border-brand-400 focus:ring-2 focus:ring-brand-100 focus:outline-none"/>
+			</div>
+			<div class="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+				@components.Input("industry", "Industry", d.Form.Industry, "e.g. Construction", "text", false)
+				@components.Input("country", "Country", d.Form.Country, "Indonesia", "text", false)
+				@components.Input("province", "Province", d.Form.Province, "e.g. DKI Jakarta", "text", false)
+				@components.Input("city", "City", d.Form.City, "e.g. Jakarta", "text", false)
+			</div>
+			<div class="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+				@components.Select("company_size", "Company Size", []string{"|Any size", "1-10|1–10", "11-50|11–50", "51-200|51–200", "201-500|201–500", "500+|500+"}, d.Form.CompanySize)
+				@components.Select("min_score", "Minimum Lead Score", []string{"0|No minimum", "50|50+ Qualified", "70|70+ Strong", "90|90+ Hot"}, strconv.Itoa(d.Form.MinScore))
+				@components.Select("result_limit", "Result Limit", limitOpts(d.Limits), strconv.Itoa(d.Form.ResultLimit))
+				<div class="space-y-1.5">
+					<label for="custom_limit" class="block text-[13px] font-medium text-ink-2">Custom Limit</label>
+					<input type="number" id="custom_limit" name="custom_limit" value={ d.Form.CustomLimit } min="1" max="50000" placeholder="overrides select"
+						class="input h-9 w-full rounded-lg border border-line bg-white px-3 text-[13px] focus:border-brand-400 focus:ring-2 focus:ring-brand-100 focus:outline-none"/>
+				</div>
+			</div>
+			if len(d.ICPs) > 0 {
+				<div class="mt-4 max-w-sm">
+					@components.Select("icp_id", "Ideal Customer Profile (optional)", icpOpts(d.ICPs), d.Form.ICPID)
+				</div>
+			}
+		</div>
+
+		<div class="card bg-white border border-line rounded-xl shadow-xs p-5">
+			<h2 class="text-[14px] font-semibold text-ink">Sources & filters</h2>
+			<p class="mt-0.5 text-[12.5px] text-ink-3">Discovery runs in the background — you can navigate away and watch progress.</p>
+			<div class="mt-3 flex flex-wrap gap-x-6 gap-y-2">
+				for _, s := range d.Sources {
+					<label class="inline-flex items-center gap-2 text-[13px] text-ink-2 cursor-pointer select-none">
+						<input type="checkbox" name="sources" value={ s.Value } checked?={ d.Form.HasSource(s.Value) } class="w-4 h-4 rounded border-line text-brand-600 accent-brand-600"/>
+						{ s.Label }
+					</label>
+				}
+			</div>
+			<div class="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+				@components.Checkbox("has_website", "Has website", d.Form.HasWebsite)
+				@components.Checkbox("has_email", "Has email", d.Form.HasEmail)
+				@components.Checkbox("has_phone", "Has phone", d.Form.HasPhone)
+				@components.Checkbox("has_whatsapp", "Has WhatsApp", d.Form.HasWhatsApp)
+			</div>
+			<div class="mt-4">
+				@components.Textarea("seed_urls", "Seed URLs (optional, one per line)", d.Form.SeedURLs, "https://contoh-perusahaan.co.id", 3)
+				<p class="mt-1 text-[12px] text-ink-3">Paste known company websites to crawl them directly — great for testing without discovery.</p>
+			</div>
+		</div>
+
+		<div class="flex items-center gap-3">
+			<button type="submit" class="inline-flex items-center gap-2 h-10 px-5 rounded-lg bg-brand-600 text-white text-[14px] font-medium hover:bg-brand-700 shadow-sm">
+				@components.Icon("compass", "w-4 h-4")
+				Find Leads
+			</button>
+			<a href="/searches" class="text-[13px] text-ink-2 hover:text-ink">View search history →</a>
+		</div>
+	</form>
+}
+
+func limitOpts(limits []Option) []string {
+	out := make([]string, 0, len(limits))
+	for _, l := range limits {
+		out = append(out, l.Value+"|"+l.Label)
+	}
+	return out
+}
+
+func icpOpts(icps []Option) []string {
+	out := []string{"|No ICP"}
+	for _, o := range icps {
+		out = append(out, o.Value+"|"+o.Label)
+	}
+	return out
+}

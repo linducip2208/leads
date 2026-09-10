@@ -1,0 +1,50 @@
+package pipeline
+
+import "leadforge/web/components"
+
+templ Board(p PageMeta, d *BoardData) {
+	@components.PageHeader(d.PipelineName, "Drag deals between stages — values update instantly.") {
+		@components.LinkButton("/deals/new", "New Deal")
+	}
+	<div class="flex gap-3 overflow-x-auto pb-4 items-start">
+		for _, st := range d.Stages {
+			<div class="kanban-col w-[280px] shrink-0 rounded-xl border border-line bg-[#f6f7fb] flex flex-col max-h-[calc(100vh-220px)]" data-stage-dropzone data-stage-id={ st.ID }>
+				<div class="px-3 pt-3 pb-2 flex items-center justify-between gap-2">
+					<span class="text-[13px] font-semibold truncate">{ st.Name } <span class="ml-1 text-[11px] font-medium text-ink-3 tabular-nums">{ itoa(st.Count) }</span></span>
+					<span class="text-[11.5px] text-ink-3 tabular-nums shrink-0">{ st.Total }</span>
+				</div>
+				<div class="px-2.5 pb-3 space-y-2 overflow-y-auto scroll-thin min-h-[60px]">
+					for _, dl := range st.Deals {
+						<div class="rounded-lg border border-line bg-white p-3 shadow-xs cursor-grab active:cursor-grabbing hover:border-brand-300" draggable="true" data-draggable-card data-deal-id={ dl.ID }>
+							<a href={ templ.URL("/deals/" + dl.ID) } class="block text-[13px] font-medium leading-5 hover:text-brand-700">{ dl.Title }</a>
+							<div class="mt-0.5 text-[12px] text-ink-3 truncate">{ dl.Company }</div>
+							<div class="mt-2 flex items-center justify-between">
+								<span class="text-[13px] font-semibold tabular-nums">{ dl.Value }</span>
+								if dl.Owner != "" {
+									<span class="text-[11px] text-ink-3 truncate max-w-[110px]">{ dl.Owner }</span>
+								}
+							</div>
+						</div>
+					}
+					if len(st.Deals) == 0 {
+						<div class="rounded-lg border border-dashed border-line px-3 py-5 text-center text-[12px] text-ink-3">Drop deals here</div>
+					}
+				</div>
+			</div>
+		}
+	</div>
+}
+
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	var b [20]byte
+	i := len(b)
+	for n > 0 {
+		i--
+		b[i] = byte('0' + n%10)
+		n /= 10
+	}
+	return string(b[i:])
+}

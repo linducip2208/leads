@@ -1,0 +1,83 @@
+package leads
+
+import "leadforge/web/components"
+
+// DrawerFragment renders the lead side drawer into #drawer-host (HTMX swap).
+templ DrawerFragment(p PageMeta, d *DetailData) {
+	@components.Drawer("lead-drawer", d.Company, drawerBody(p, d))
+}
+
+templ drawerBody(p PageMeta, d *DetailData) {
+	<div class="space-y-4">
+		<div class="flex flex-wrap items-center gap-2">
+			@components.ScoreBadge(d.Score)
+			@components.StatusBadge(d.Status)
+		</div>
+		<div class="grid grid-cols-2 gap-2">
+			if d.HasEmail {
+				<a href={ templ.URL("mailto:" + d.Email) } class="inline-flex justify-center items-center gap-1.5 h-8 rounded-lg bg-white border border-line text-[12.5px] font-medium hover:bg-[#f6f7fb]">
+					@components.Icon("mail", "w-3.5 h-3.5") Email
+				</a>
+			}
+			if d.HasWhatsApp {
+				<a href={ templ.URL(d.WhatsAppLink) } target="_blank" rel="noopener" class="inline-flex justify-center items-center gap-1.5 h-8 rounded-lg bg-white border border-line text-[12.5px] font-medium hover:bg-[#f6f7fb]">
+					@components.Icon("message-circle", "w-3.5 h-3.5") WhatsApp
+				</a>
+			}
+			<a href={ templ.URL("/tasks?lead=" + d.ID) } class="inline-flex justify-center items-center gap-1.5 h-8 rounded-lg bg-white border border-line text-[12.5px] font-medium hover:bg-[#f6f7fb]">
+				@components.Icon("check-square", "w-3.5 h-3.5") Task
+			</a>
+			<a href={ templ.URL("/deals/new?lead=" + d.ID) } class="inline-flex justify-center items-center gap-1.5 h-8 rounded-lg bg-brand-600 text-white text-[12.5px] font-medium hover:bg-brand-700">
+				@components.Icon("plus", "w-3.5 h-3.5") Deal
+			</a>
+		</div>
+		<div>
+			@components.SectionTitle("Overview")
+			@components.KV("Company", d.Company)
+			@components.KV("Website", d.Website)
+			@components.KV("Industry", d.Industry)
+			@components.KV("Location", d.Location)
+			@components.KV("Owner", d.Owner)
+			@components.KV("Source", d.Source)
+		</div>
+		if d.Contact.Name != "" || d.Contact.Email != "" {
+			<div>
+				@components.SectionTitle("Primary contact")
+				<div class="flex items-center gap-2.5">
+					@components.Avatar(d.Contact.Name, 30)
+					<div class="min-w-0">
+						<div class="text-[13px] font-medium truncate">{ d.Contact.Name }</div>
+						<div class="text-[12px] text-ink-3 truncate">{ d.Contact.Title }</div>
+					</div>
+				</div>
+				@components.KV("Email", d.Contact.Email)
+				@components.KV("Phone", d.Contact.Phone)
+			</div>
+		}
+		if len(d.Contacts) > 1 {
+			<div>
+				@components.SectionTitle("All contacts")
+				for _, c := range d.Contacts {
+					<div class="py-1.5 border-b border-[#f0f1f6] last:border-0 text-[13px]">
+						<div class="font-medium">{ c.Name }</div>
+						<div class="text-[12px] text-ink-3">{ c.Title } · { c.Email }</div>
+					</div>
+				}
+			</div>
+		}
+		if len(d.Activities) > 0 {
+			<div>
+				@components.SectionTitle("Recent activity")
+				for _, a := range d.Activities {
+					<div class="py-1 text-[12.5px]">
+						<span class="text-ink">{ a.Subject }</span>
+						<span class="text-ink-3"> · { a.When }</span>
+					</div>
+				}
+			</div>
+		}
+		<a href={ templ.URL("/leads/" + d.ID) } class="inline-flex w-full justify-center items-center h-9 rounded-lg bg-ink text-white text-[13px] font-medium">
+			View Company @components.Icon("arrow-right", "w-3.5 h-3.5")
+		</a>
+	</div>
+}

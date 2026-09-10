@@ -9,13 +9,22 @@ import (
 
 func (s *Server) routes() {
 	s.authRoutes()
+	s.finderRoutes()
+	s.searchRoutes()
+	s.leadRoutes()
+	s.companyRoutes()
+	s.peopleRoutes()
+	s.importRoutes()
+	s.crmRoutes()
+	s.intelRoutes()
+	s.adminRoutes()
 
 	// static
 	s.Router.MountPrefix("/static/", http.StripPrefix("/static/", s.staticHandler()))
 
 	// health
 	s.Router.HandleFunc("GET", "/health", s.handleHealth)
-	s.Router.HandleFunc("GET", "/ready", s.handleHealth)
+	s.Router.HandleFunc("GET", "/ready", s.handleReady)
 
 	// landing
 	s.Router.HandleFunc("GET", "/landing", s.handleLanding)
