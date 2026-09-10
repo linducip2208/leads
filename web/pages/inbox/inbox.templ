@@ -1,0 +1,112 @@
+package inbox
+
+import "leadforge/web/components"
+
+templ List(p PageMeta, d *ListData) {
+	@components.PageHeader("Inbox", "Replies and conversation threads. A reply stops the sequence for that contact.")
+	<div class="card bg-white border border-line rounded-xl shadow-xs">
+		<div class="px-4 pt-3 flex items-center gap-1.5 border-b border-line">
+			for _, t := range []struct{ v, l string }{{"open", "Open"}, {"closed", "Closed"}, {"", "All"}} {
+				if t.v == d.Filter || (t.v == "open" && d.Filter == "") {
+					<a href={ templ.URL("/inbox?status=" + t.v) } class="px-3 pb-2.5 text-[13px] font-semibold text-brand-700 border-b-2 border-brand-600 -mb-px">{ t.l }</a>
+				} else {
+					<a href={ templ.URL("/inbox?status=" + t.v) } class="px-3 pb-2.5 text-[13px] font-medium text-ink-2 hover:text-ink border-b-2 border-transparent -mb-px">{ t.l }</a>
+				}
+			}
+		</div>
+		<div class="divide-y divide-[#f0f1f6]">
+			for _, it := range d.Items {
+				<a href={ templ.URL("/inbox/" + it.ID) } class="flex items-center gap-3 px-4 py-3 hover:bg-[#f6f7fb]">
+					@components.Avatar(it.Contact, 34)
+					<div class="min-w-0 flex-1">
+						<div class="flex items-center gap-2">
+							<span class="text-[13.5px] font-medium truncate">{ it.Contact }</span>
+							if it.Unread > 0 {
+								<span class="inline-flex items-center justify-center min-w-[20px] h-5 px-1 rounded-full bg-brand-600 text-white text-[11px] font-semibold">{ itoa(it.Unread) }</span>
+							}
+						</div>
+						<div class="text-[12.5px] text-ink-2 truncate">{ it.Subject }</div>
+						<div class="text-[11.5px] text-ink-3">{ it.Email } · { it.Updated }</div>
+					</div>
+					@components.StatusBadge(it.Status)
+				</a>
+			}
+		</div>
+		if len(d.Items) == 0 {
+			<div class="p-10">@components.EmptyState("inbox", "Inbox zero", "Replies to your campaigns appear here. Connect an inbound webhook or log replies to stop sequences.", nil)</div>
+		}
+	</div>
+}
+
+templ Detail(p PageMeta, d *DetailData) {
+	@components.PageHeader(d.Contact, d.Email) {
+		@detailActions(p, d)
+	}
+	<div class="grid gap-4 lg:grid-cols-[1fr_320px] max-w-5xl">
+		<div class="space-y-3">
+			for _, m := range d.Messages {
+				if m.Direction == "in" {
+					<div class="card bg-white border border-line rounded-xl shadow-xs p-4 max-w-[85%]">
+						<div class="text-[12px] text-ink-3">{ m.From } → { m.To } · { m.When }</div>
+						<div class="mt-1 text-[13.5px] font-medium">{ m.Subject }</div>
+						<div class="mt-1.5 text-[13px] whitespace-pre-wrap">{ m.Body }</div>
+					</div>
+				} else {
+					<div class="card bg-brand-50/60 border border-brand-100 rounded-xl p-4 max-w-[85%] ml-auto">
+						<div class="text-[12px] text-ink-3">{ m.From } → { m.To } · { m.When }</div>
+						<div class="mt-1 text-[13.5px] font-medium">{ m.Subject }</div>
+						<div class="mt-1.5 text-[13px] whitespace-pre-wrap">{ m.Body }</div>
+					</div>
+				}
+			}
+			if len(d.Messages) == 0 {
+				<p class="text-[13px] text-ink-3">No messages yet.</p>
+			}
+		</div>
+		<aside class="card bg-white border border-line rounded-xl shadow-xs p-4 h-fit">
+			<h2 class="text-[14px] font-semibold mb-2">Reply</h2>
+			<form method="post" action={ templ.URL("/inbox/" + d.ID + "/reply") } class="space-y-2.5">
+				<input type="hidden" name="_token" value={ p.CSRFToken }/>
+				@components.Input("subject", "Subject", "Re: "+d.Subject, "", "text", true)
+				@components.Textarea("body", "Message", "", "Hi,\n\nThanks for replying…", 6)
+				<button class="h-9 w-full rounded-lg bg-brand-600 text-white text-[13px] font-medium hover:bg-brand-700">Send reply</button>
+			</form>
+			<p class="mt-2 text-[11.5px] text-ink-3">Sent from the workspace default account and recorded here.</p>
+		</aside>
+	</div>
+}
+
+templ detailActions(p PageMeta, d *DetailData) {
+	<div class="flex items-center gap-2">
+		<form method="post" action={ templ.URL("/inbox/" + d.ID + "/read") }>
+			<input type="hidden" name="_token" value={ p.CSRFToken }/>
+			<button class="h-8 px-3 rounded-lg bg-white border border-line text-[13px] font-medium hover:bg-[#f6f7fb]">Mark read</button>
+		</form>
+		if d.Status == "open" {
+			<form method="post" action={ templ.URL("/inbox/" + d.ID + "/close") }>
+				<input type="hidden" name="_token" value={ p.CSRFToken }/>
+				<button class="h-8 px-3 rounded-lg bg-white border border-line text-[13px] font-medium hover:bg-[#f6f7fb]">Close</button>
+			</form>
+		} else {
+			<form method="post" action={ templ.URL("/inbox/" + d.ID + "/close") }>
+				<input type="hidden" name="_token" value={ p.CSRFToken }/>
+				<input type="hidden" name="reopen" value="1"/>
+				<button class="h-8 px-3 rounded-lg bg-white border border-line text-[13px] font-medium hover:bg-[#f6f7fb]">Reopen</button>
+			</form>
+		}
+	</div>
+}
+
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	var b [20]byte
+	i := len(b)
+	for n > 0 {
+		i--
+		b[i] = byte('0' + n%10)
+		n /= 10
+	}
+	return string(b[i:])
+}

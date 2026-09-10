@@ -19,6 +19,9 @@ type Extracted struct {
 	Address      string
 	Socials      map[string]string
 	Technologies []string
+	// JSRequired flags pages that render content client-side (SPA shells).
+	// Chromedp fallback can target these; the default crawler records and skips.
+	JSRequired bool
 }
 
 var (
@@ -203,6 +206,14 @@ func Extract(pageURL string, body []byte) *Extracted {
 			}
 		}
 	}
+
+	// JS-rendered shell detection: mount node present but almost no content.
+	textLen := len(strings.Fields(text))
+	hasMount := strings.Contains(lh, `id="root"`) || strings.Contains(lh, `id="app"`) ||
+		strings.Contains(lh, "__next_data__") || strings.Contains(lh, "ng-app") ||
+		strings.Contains(lh, "data-reactroot")
+	mentionsJS := strings.Contains(lh, "enable javascript") || strings.Contains(lh, "requires javascript")
+	out.JSRequired = mentionsJS || (hasMount && textLen < 30 && len(out.Emails) == 0)
 	return out
 }
 
@@ -234,6 +245,7 @@ func (e *Extracted) Merge(o *Extracted) {
 			e.Socials[k] = v
 		}
 	}
+	e.JSRequired = e.JSRequired || o.JSRequired
 }
 
 // PrimaryEmail/Phone/WhatsApp pick the first value or "".

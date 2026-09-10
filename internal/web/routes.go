@@ -18,6 +18,9 @@ func (s *Server) routes() {
 	s.crmRoutes()
 	s.intelRoutes()
 	s.adminRoutes()
+	s.campaignRoutes()
+	s.settingsRoutes()
+	s.analyticsRoutes()
 
 	// static
 	s.Router.MountPrefix("/static/", http.StripPrefix("/static/", s.staticHandler()))

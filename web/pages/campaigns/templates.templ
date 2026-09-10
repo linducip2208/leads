@@ -1,0 +1,53 @@
+package campaigns
+
+import "leadforge/web/components"
+
+// TemplateItem is one email template row.
+type TemplateItem struct {
+	ID      string
+	Name    string
+	Subject string
+	Created string
+}
+
+// TemplatesData powers the templates page.
+type TemplatesData struct {
+	Items []TemplateItem
+	Error string
+}
+
+templ Templates(p PageMeta, d *TemplatesData) {
+	@components.PageHeader("Templates", "Reusable email content with {{first_name}}, {{company}} and {{unsubscribe_url}} variables.")
+	if d.Error != "" {
+		<div class="mb-4 rounded-lg border border-red-200 bg-red-50 px-3.5 py-2.5 text-[13px] text-red-800">{ d.Error }</div>
+	}
+	<div class="grid gap-4 lg:grid-cols-[1fr_420px]">
+		<div class="space-y-3">
+			for _, t := range d.Items {
+				<div class="card bg-white border border-line rounded-xl shadow-xs p-4">
+					<div class="flex items-center gap-2">
+						<span class="text-[14px] font-semibold">{ t.Name }</span>
+						<form method="post" action={ templ.URL("/templates/" + t.ID + "/delete") } class="ml-auto" data-confirm="Delete this template?">
+							<input type="hidden" name="_token" value={ p.CSRFToken }/>
+							<button class="text-[12px] text-red-700 hover:underline">Delete</button>
+						</form>
+					</div>
+					<div class="mt-1 text-[13px] font-medium text-ink-2">{ t.Subject }</div>
+				</div>
+			}
+			if len(d.Items) == 0 {
+				<div class="card bg-white border border-line rounded-xl shadow-xs p-8 text-center text-[13px] text-ink-3">No templates yet.</div>
+			}
+		</div>
+		<aside class="card bg-white border border-line rounded-xl shadow-xs p-4 h-fit">
+			<h2 class="text-[14px] font-semibold mb-3">New template</h2>
+			<form method="post" action="/templates" class="space-y-3">
+				<input type="hidden" name="_token" value={ p.CSRFToken }/>
+				@components.Input("name", "Name", "", "e.g. Intro v1", "text", true)
+				@components.Input("subject", "Subject", "", "Quick question, {{first_name}}", "text", true)
+				@components.Textarea("body", "Body", "", "Hi {{first_name}},\n\nNoticed {{company}} …\n\nWorth a 15-min chat?\n\n{{unsubscribe_url}}", 8)
+				<button class="h-9 w-full rounded-lg bg-brand-600 text-white text-[13px] font-medium hover:bg-brand-700">Save template</button>
+			</form>
+		</aside>
+	</div>
+}

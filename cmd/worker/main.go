@@ -13,6 +13,8 @@ import (
 	"github.com/hibiken/asynq"
 
 	"leadforge/internal/auth"
+	"leadforge/internal/mail"
+	"leadforge/internal/outreach"
 	"leadforge/internal/platform"
 	"leadforge/internal/queue"
 	"leadforge/internal/search"
@@ -53,6 +55,39 @@ func main() {
 	})
 	mux.HandleFunc(queue.TypeSweep, func(ctx context.Context, _ *asynq.Task) error {
 		sess.Sweep(ctx)
+		return nil
+	})
+	outDeps := &outreach.Deps{Pool: cont.PG, Log: cont.Log, Secret: cont.Cfg.SessionSecret, AppURL: cont.Cfg.AppURL}
+	mux.HandleFunc(queue.TypeOutreachTick, func(ctx context.Context, _ *asynq.Task) error {
+		// promote due scheduled campaigns
+		_, _ = cont.PG.Exec(ctx, `UPDATE campaigns SET status='running', started_at=COALESCE(started_at,now()) WHERE status='scheduled' AND scheduled_at <= now()`)
+		// enqueue one send batch per running campaign
+		rows, err := cont.PG.Query(ctx, `SELECT id::text FROM campaigns WHERE status='running'`)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		qc := queue.NewClient(cont.Cfg.RedisAddr)
+		defer qc.Close()
+		for rows.Next() {
+			var cid string
+			if err := rows.Scan(&cid); err == nil {
+				_ = qc.EnqueueOutreachSend(ctx, cid)
+			}
+		}
+		return rows.Err()
+	})
+	mux.HandleFunc(queue.TypeOutreachSend, func(ctx context.Context, t *asynq.Task) error {
+		var p queue.OutreachPayload
+		if err := json.Unmarshal(t.Payload(), &p); err != nil || p.CampaignID == "" {
+			return nil
+		}
+		sent, err := outreach.RunBatch(ctx, outDeps, mail.SMTPSender{}, p.CampaignID)
+		if err != nil {
+			cont.Log.Error("outreach batch failed", "campaign", p.CampaignID, "err", err)
+			return err
+		}
+		cont.Log.Info("outreach batch done", "campaign", p.CampaignID, "sent", sent)
 		return nil
 	})
 	mux.HandleFunc(queue.TypeWatchdog, func(ctx context.Context, _ *asynq.Task) error {

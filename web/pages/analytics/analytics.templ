@@ -1,0 +1,88 @@
+package analytics
+
+import (
+	"strconv"
+
+	"leadforge/web/components"
+)
+
+templ Page(p PageMeta, d *PageData, tabs []Tab) {
+	@components.PageHeader(d.Title, d.Note)
+	<div class="px-0 pt-0 flex items-center gap-1.5 flex-wrap mb-4">
+		for _, t := range tabs {
+			if t.Active {
+				<a href={ templ.URL(t.Href) } class="px-3 py-1.5 text-[13px] font-semibold text-brand-700 bg-brand-50 border border-brand-200 rounded-lg">{ t.Label }</a>
+			} else {
+				<a href={ templ.URL(t.Href) } class="px-3 py-1.5 text-[13px] font-medium text-ink-2 hover:text-ink border border-line rounded-lg bg-white">{ t.Label }</a>
+			}
+		}
+	</div>
+	<div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-4">
+		for _, s := range d.Stats {
+			<div class="card bg-white border border-line rounded-xl shadow-xs p-3">
+				<div class="text-[11px] uppercase tracking-wide text-ink-3">{ s.Label }</div>
+				<div class="mt-0.5 text-[20px] font-semibold tabular-nums">{ s.Value }</div>
+			</div>
+		}
+	</div>
+	<div class="grid gap-4 lg:grid-cols-2">
+		<div class="card bg-white border border-line rounded-xl shadow-xs p-5">
+			<h2 class="text-[14px] font-semibold mb-3">Breakdown</h2>
+			<div class="space-y-2.5">
+				for _, b := range d.Bars {
+					<div>
+						<div class="flex items-center justify-between text-[12.5px]">
+							<span class="text-ink-2 truncate">{ b.Label }</span>
+							<span class="font-semibold tabular-nums shrink-0 ml-2">{ b.Value }</span>
+						</div>
+						<div class="mt-1 h-2 rounded-full bg-[#eef0f5] overflow-hidden">
+							<div class="h-full rounded-full bg-brand-500" style={ "width:" + ftoa(b.Pct) + "%" }></div>
+						</div>
+					</div>
+				}
+			</div>
+			if len(d.Bars) == 0 {
+				<p class="text-[13px] text-ink-3">No data yet.</p>
+			}
+		</div>
+		<div class="card bg-white border border-line rounded-xl shadow-xs p-5">
+			<h2 class="text-[14px] font-semibold mb-3">Last 14 days</h2>
+			<div class="flex items-end gap-1 h-36">
+				for _, dp := range d.Days {
+					<div class="flex-1 flex flex-col items-center gap-1 min-w-0" title={ dp.Label + ": " + itoa(dp.Count) }>
+						<div class="w-full rounded-t bg-brand-500/80" style={ "height:" + dayH(dp.Count, d.Days) + "%" }></div>
+						<div class="text-[9px] text-ink-3 truncate w-full text-center">{ dp.Label }</div>
+					</div>
+				}
+			</div>
+			if len(d.Days) == 0 {
+				<p class="text-[13px] text-ink-3">No data yet.</p>
+			}
+		</div>
+	</div>
+}
+
+// Tab is an analytics section tab.
+type Tab struct {
+	Label  string
+	Href   string
+	Active bool
+}
+
+func itoa(n int) string {
+	return strconv.Itoa(n)
+}
+
+func ftoa(f float64) string {
+	return strconv.FormatFloat(f, 'f', 1, 64)
+}
+
+func dayH(v int, days []DayPoint) string {
+	max := 1
+	for _, d := range days {
+		if d.Count > max {
+			max = d.Count
+		}
+	}
+	return strconv.FormatFloat(float64(v)/float64(max)*100, 'f', 0, 64)
+}

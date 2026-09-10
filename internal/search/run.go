@@ -285,6 +285,7 @@ func (r *Runner) Process(ctx context.Context, j *Job, cand source.RawLead) {
 			"whatsapp": ex.PrimaryWhatsApp(), "socials": ex.Socials,
 			"technologies": ex.Technologies, "pages": res.Pages,
 			"confidence": enrichConf, "source_url": n.Website,
+			"js_required": ex.JSRequired,
 		})
 		enrichData = string(eb)
 		enriched = true

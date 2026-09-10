@@ -42,7 +42,8 @@ func main() {
 
 	ws := web.New(web.Config{
 		AppName: cont.Cfg.AppName, Env: cont.Cfg.Env, Addr: cont.Cfg.Addr,
-		AppURL: cont.Cfg.AppURL, RedisAddr: cont.Cfg.RedisAddr,
+		AppURL: cont.Cfg.AppURL, RedisAddr: cont.Cfg.RedisAddr, Secret: cont.Cfg.SessionSecret,
+		InboundKey:   cont.Cfg.InboundKey,
 		CrawlWorkers: cont.Cfg.CrawlerWorkers, CrawlDomain: cont.Cfg.CrawlerDomainConcurrency,
 		CrawlTimeout: cont.Cfg.CrawlerTimeout.String(), CrawlMaxPages: cont.Cfg.CrawlerMaxPagesPerSite,
 		CrawlMaxDepth: cont.Cfg.CrawlerMaxDepth,

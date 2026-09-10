@@ -43,10 +43,25 @@ func navGroups() []navGroup {
 			{Label: "Tasks", Href: "/tasks", Icon: "check-square", Perm: "task.manage"},
 			{Label: "Activities", Href: "/activities", Icon: "activity", Perm: "lead.read"},
 		}},
+		{Label: "Engage", Items: []navItem{
+			{Label: "Campaigns", Href: "/campaigns", Icon: "megaphone", Perm: "campaign.create"},
+			{Label: "Templates", Href: "/templates", Icon: "mail", Perm: "campaign.create"},
+			{Label: "Inbox", Href: "/inbox", Icon: "inbox", Perm: "lead.read"},
+		}},
 		{Label: "Intelligence", Items: []navItem{
 			{Label: "Enrichment", Href: "/enrichment", Icon: "zap", Perm: "lead.read"},
 			{Label: "Lead Scoring", Href: "/scoring", Icon: "gauge", Perm: "lead.read"},
 			{Label: "ICP", Href: "/icp", Icon: "target", Perm: "lead.read"},
+		}},
+		{Label: "Analytics", Items: []navItem{
+			{Label: "Leads", Href: "/analytics/leads", Icon: "bar-chart-3", Perm: "lead.read"},
+			{Label: "Campaigns", Href: "/analytics/campaigns", Icon: "megaphone", Perm: "lead.read"},
+			{Label: "Sales", Href: "/analytics/sales", Icon: "trending-up", Perm: "deal.manage"},
+			{Label: "Sources", Href: "/analytics/sources", Icon: "radar", Perm: "lead.read"},
+		}},
+		{Label: "Settings", Items: []navItem{
+			{Label: "Workspace", Href: "/settings/workspace", Icon: "briefcase", Perm: "tenant.manage"},
+			{Label: "Email Accounts", Href: "/settings/email-accounts", Icon: "mail", Perm: "integration.manage"},
 		}},
 		{Label: "Super Admin", Items: []navItem{
 			{Label: "Queue", Href: "/admin/queue", Icon: "cpu", Perm: "admin.platform"},

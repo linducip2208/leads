@@ -304,6 +304,18 @@ func GlobalSearch(ctx context.Context, pool *pgxpool.Pool, tenantID, q string) [
 		}
 		rows.Close()
 	}
+	rows, err = pool.Query(ctx, `
+		SELECT id::text, name, COALESCE(status,''), 'Campaign' FROM campaigns
+		WHERE tenant_id = $1 AND name ILIKE $2 LIMIT 5`, tenantID, like)
+	if err == nil {
+		for rows.Next() {
+			var r SearchResult
+			_ = rows.Scan(&r.ID, &r.Text, &r.Sub, &r.Type)
+			r.Href = "/campaigns/" + r.ID
+			out = append(out, r)
+		}
+		rows.Close()
+	}
 	return out
 }
 

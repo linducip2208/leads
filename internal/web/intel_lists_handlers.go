@@ -32,7 +32,8 @@ func segWhere(f segFilter) (string, []any) {
 		args = append(args, v)
 		w += " AND " + cond
 	}
-	ph := func() string { return "$" + strconv.Itoa(len(args)+1) }
+	// $1 is reserved for tenant_id, so first filter arg is $2.
+	ph := func() string { return "$" + strconv.Itoa(len(args)+2) }
 	if f.MinScore > 0 {
 		add("l.lead_score >= "+ph(), f.MinScore)
 	}
@@ -41,8 +42,8 @@ func segWhere(f segFilter) (string, []any) {
 	}
 	if f.City != "" {
 		args = append(args, "%"+f.City+"%", "%"+f.City+"%")
-		n := len(args)
-		w += " AND (c.city ILIKE $" + strconv.Itoa(n-1) + " OR c.province ILIKE $" + strconv.Itoa(n) + ")"
+		n := len(args) // +1 implicit: $1 is tenant_id, so new args are $n and $n+1
+		w += " AND (c.city ILIKE $" + strconv.Itoa(n) + " OR c.province ILIKE $" + strconv.Itoa(n+1) + ")"
 	}
 	if f.HasWhatsApp {
 		w += " AND NULLIF(c.whatsapp,'') IS NOT NULL"

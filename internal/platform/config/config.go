@@ -38,6 +38,8 @@ type Config struct {
 	SMTPPassword string
 	SMTPFrom     string
 
+	InboundKey string
+
 	MaxRequestBytes int64
 	ShardCount      int
 }
@@ -79,6 +81,8 @@ func Load() (*Config, error) {
 	c.SMTPUsername = env("SMTP_USERNAME", "")
 	c.SMTPPassword = env("SMTP_PASSWORD", "")
 	c.SMTPFrom = env("SMTP_FROM", "")
+
+	c.InboundKey = env("INBOUND_WEBHOOK_KEY", "")
 
 	return c, nil
 }

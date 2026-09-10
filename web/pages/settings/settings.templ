@@ -1,0 +1,104 @@
+package settings
+
+import "leadforge/web/components"
+
+templ Workspace(p PageMeta, d *WorkspaceData) {
+	@components.PageHeader("Workspace", "Your tenant profile.")
+	<div class="card bg-white border border-line rounded-xl shadow-xs p-5 max-w-xl">
+		if d.Error != "" {
+			<div class="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[12.5px] text-red-800">{ d.Error }</div>
+		}
+		<form method="post" action="/settings/workspace" class="space-y-3">
+			<input type="hidden" name="_token" value={ p.CSRFToken }/>
+			@components.Input("name", "Workspace name", d.Name, "", "text", true)
+			<div class="text-[12.5px] text-ink-3">Slug: <span class="font-medium text-ink-2">{ d.Slug }</span> (cannot be changed)</div>
+			<button class="h-9 px-4 rounded-lg bg-brand-600 text-white text-[13px] font-medium hover:bg-brand-700">Save</button>
+		</form>
+	</div>
+}
+
+templ EmailAccounts(p PageMeta, d *EmailAccountsData) {
+	@components.PageHeader("Email Accounts", "SMTP senders for campaigns. Passwords are encrypted at rest.")
+	if d.Error != "" {
+		<div class="mb-4 rounded-lg border border-red-200 bg-red-50 px-3.5 py-2.5 text-[13px] text-red-800">{ d.Error }</div>
+	}
+	<div class="grid gap-4 lg:grid-cols-[1fr_400px]">
+		<div class="card bg-white border border-line rounded-xl shadow-xs overflow-hidden h-fit">
+			<table class="tbl w-full text-[13px]">
+				<thead><tr><th>Account</th><th>From</th><th>Limits</th><th>Status</th><th class="text-right">Actions</th></tr></thead>
+				<tbody>
+					for _, a := range d.Accounts {
+						<tr>
+							<td class="font-medium">{ a.Name }</td>
+							<td class="text-ink-2">{ a.FromEmail }</td>
+							<td class="text-ink-2 tabular-nums">{ itoa(a.Hourly) }/h · { itoa(a.Daily) }/day</td>
+							<td>
+								if a.Active {
+									@components.Badge(a.Status, "green")
+								} else {
+									@components.Badge("disabled", "gray")
+								}
+							</td>
+							<td class="text-right whitespace-nowrap">
+								<form method="post" action={ templ.URL("/settings/email-accounts/" + a.ID + "/test") } class="inline">
+									<input type="hidden" name="_token" value={ p.CSRFToken }/>
+									<button class="h-7 px-2 rounded-md border border-line text-[12px] hover:bg-[#f6f7fb]">Test</button>
+								</form>
+								<form method="post" action={ templ.URL("/settings/email-accounts/" + a.ID + "/toggle") } class="inline ml-1">
+									<input type="hidden" name="_token" value={ p.CSRFToken }/>
+									<button class="h-7 px-2 rounded-md border border-line text-[12px] hover:bg-[#f6f7fb]">Toggle</button>
+								</form>
+								<form method="post" action={ templ.URL("/settings/email-accounts/" + a.ID + "/delete") } class="inline ml-1" data-confirm="Delete this account?">
+									<input type="hidden" name="_token" value={ p.CSRFToken }/>
+									<button class="h-7 px-2 rounded-md border border-line text-[12px] text-red-700 hover:bg-red-50">Delete</button>
+								</form>
+							</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+			if len(d.Accounts) == 0 {
+				<div class="p-6 text-center text-[13px] text-ink-3">No sending accounts — add your SMTP below.</div>
+			}
+		</div>
+		<aside class="card bg-white border border-line rounded-xl shadow-xs p-4 h-fit">
+			<h2 class="text-[14px] font-semibold mb-3">Add SMTP account</h2>
+			<form method="post" action="/settings/email-accounts" class="space-y-3">
+				<input type="hidden" name="_token" value={ p.CSRFToken }/>
+				@components.Input("name", "Name", "", "e.g. Main sender", "text", true)
+				<div class="grid grid-cols-2 gap-3">
+					@components.Input("from_name", "From name", "", "", "text", false)
+					@components.Input("from_email", "From email", "", "you@company.com", "email", true)
+				</div>
+				<div class="grid grid-cols-2 gap-3">
+					@components.Input("smtp_host", "SMTP host", "", "smtp.company.com", "text", true)
+					@components.Input("smtp_port", "Port", "587", "", "number", true)
+				</div>
+				<div class="grid grid-cols-2 gap-3">
+					@components.Select("smtp_encryption", "Encryption", []string{"starttls|STARTTLS", "ssl|SSL", "none|None"}, "starttls")
+					@components.Input("smtp_username", "Username", "", "", "text", false)
+				</div>
+				@components.Input("smtp_password", "Password", "", "", "password", false)
+				<div class="grid grid-cols-2 gap-3">
+					@components.Input("hourly_limit", "Hourly limit", "20", "", "number", false)
+					@components.Input("daily_limit", "Daily limit", "200", "", "number", false)
+				</div>
+				<button class="h-9 w-full rounded-lg bg-brand-600 text-white text-[13px] font-medium hover:bg-brand-700">Add account</button>
+			</form>
+		</aside>
+	</div>
+}
+
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	var b [20]byte
+	i := len(b)
+	for n > 0 {
+		i--
+		b[i] = byte('0' + n%10)
+		n /= 10
+	}
+	return string(b[i:])
+}

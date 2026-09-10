@@ -38,6 +38,8 @@ type Config struct {
 	Addr          string
 	AppURL        string
 	RedisAddr     string
+	Secret        string
+	InboundKey    string
 	CrawlWorkers  int
 	CrawlDomain   int
 	CrawlTimeout  string

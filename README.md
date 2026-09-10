@@ -124,6 +124,35 @@ buttons; tasks (call/email/WhatsApp/meeting/follow-up/general) and the
 activity feed cover follow-ups. Segments are dynamic filters, lists are manual
 (via the Leads bulk bar).
 
+## Campaigns & outreach
+
+Audience (segment/list) → template → sequence steps → sending account →
+schedule → launch. The worker (`outreach:send`, ticked every minute by the
+scheduler) sends due emails with enforced safety: suppression list,
+invalid/disposable filtering, stop-on-reply, per-account hourly/daily limits.
+Hard bounces (5xx) auto-suppress and invalidate the address; failures are
+recorded per message, never fatal to the batch.
+
+- Sending accounts live under `/settings/email-accounts` (SMTP, passwords
+  AES-256-GCM encrypted, Test button dials the relay for real).
+- Every email carries `List-Unsubscribe` + footer link (`/u/{token}`, HMAC
+  signed, one-click).
+- Replies arrive via `POST /webhooks/inbound?key=INBOUND_WEBHOOK_KEY`
+  (`{"to","from","subject","body"}`) into `/inbox`, flipping contacts to
+  replied. Manual replies send through the default account.
+
+## Analytics
+
+`/analytics/leads|campaigns|sales|sources`: KPIs, breakdown bars and 14-day
+charts from live aggregates (lead funnel, reply rates, pipeline value, win
+rate, channel quality).
+
+## AI (optional, off by default)
+
+`internal/ai` defines the `Provider` interface; `OpenAICompatible` covers
+OpenAI/DeepSeek/GLM-compatible endpoints. Nothing in the pipeline calls it
+unless `AI_ENABLED=true` and a provider is configured.
+
 ## Testing
 
 ```powershell

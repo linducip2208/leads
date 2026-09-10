@@ -60,7 +60,8 @@ func leadWhere(f leads.Filter, skipStatus bool) (string, []any) {
 		args = append(args, v)
 		w += " AND " + cond
 	}
-	ph := func() string { return "$" + strconv.Itoa(len(args)+1) }
+	// $1 is reserved for tenant_id, so first filter arg is $2.
+	ph := func() string { return "$" + strconv.Itoa(len(args)+2) }
 	if !skipStatus {
 		switch f.Tab {
 		case "all":
@@ -77,7 +78,8 @@ func leadWhere(f leads.Filter, skipStatus bool) (string, []any) {
 	if f.Keyword != "" {
 		like := "%" + f.Keyword + "%"
 		args = append(args, like)
-		w += " AND (c.name ILIKE $" + strconv.Itoa(len(args)) + " OR c.domain ILIKE $" + strconv.Itoa(len(args)) + " OR ct.full_name ILIKE $" + strconv.Itoa(len(args)) + " OR ct.email ILIKE $" + strconv.Itoa(len(args)) + ")"
+		n := strconv.Itoa(len(args) + 1) // +1: $1 is tenant_id
+		w += " AND (c.name ILIKE $" + n + " OR c.domain ILIKE $" + n + " OR ct.full_name ILIKE $" + n + " OR ct.email ILIKE $" + n + ")"
 	}
 	if f.Industry != "" {
 		add("c.industry = "+ph(), f.Industry)

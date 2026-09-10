@@ -14,9 +14,11 @@ import (
 
 // Task types.
 const (
-	TypeSearchRun = "search:run"
-	TypeSweep     = "maintenance:sweep"
-	TypeWatchdog  = "maintenance:watchdog"
+	TypeSearchRun    = "search:run"
+	TypeSweep        = "maintenance:sweep"
+	TypeWatchdog     = "maintenance:watchdog"
+	TypeOutreachTick = "outreach:tick"
+	TypeOutreachSend = "outreach:send"
 )
 
 // Queue names.
@@ -38,6 +40,11 @@ var AllQueues = []string{QCritical, QSearch, QCrawler, QEnrichment, QVerify, QOu
 // SearchPayload runs one lead search.
 type SearchPayload struct {
 	SearchID string `json:"search_id"`
+}
+
+// OutreachPayload sends due emails for one campaign.
+type OutreachPayload struct {
+	CampaignID string `json:"campaign_id"`
 }
 
 // RedisOpt builds asynq redis options from an address.
@@ -77,6 +84,22 @@ func (cl *Client) EnqueueSweep(ctx context.Context) error {
 func (cl *Client) EnqueueWatchdog(ctx context.Context) error {
 	_, err := cl.c.EnqueueContext(ctx, asynq.NewTask(TypeWatchdog, nil),
 		asynq.Queue(QMaintenance), asynq.MaxRetry(1), asynq.Unique(time.Hour))
+	return err
+}
+
+// EnqueueOutreachTick scans for due campaigns every minute.
+func (cl *Client) EnqueueOutreachTick(ctx context.Context) error {
+	_, err := cl.c.EnqueueContext(ctx, asynq.NewTask(TypeOutreachTick, nil),
+		asynq.Queue(QOutreach), asynq.MaxRetry(1), asynq.Unique(2*time.Minute))
+	return err
+}
+
+// EnqueueOutreachSend queues one campaign send batch (deduped per campaign).
+func (cl *Client) EnqueueOutreachSend(ctx context.Context, campaignID string) error {
+	body, _ := json.Marshal(OutreachPayload{CampaignID: campaignID})
+	_, err := cl.c.EnqueueContext(ctx, asynq.NewTask(TypeOutreachSend, body),
+		asynq.Queue(QOutreach), asynq.MaxRetry(2), asynq.Timeout(30*time.Minute),
+		asynq.Unique(5*time.Minute))
 	return err
 }
 

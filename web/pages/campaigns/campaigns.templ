@@ -1,0 +1,238 @@
+package campaigns
+
+import "leadforge/web/components"
+
+templ List(p PageMeta, d *ListData) {
+	@components.PageHeader("Campaigns", "Email sequences with safety controls — suppression, limits, stop-on-reply.") {
+		@components.LinkButton("/campaigns/new", "New Campaign")
+	}
+	<div class="card bg-white border border-line rounded-xl shadow-xs overflow-hidden">
+		<div class="overflow-x-auto">
+			<table class="tbl w-full text-[13px]">
+				<thead><tr><th>Campaign</th><th>Status</th><th class="text-right">Audience</th><th class="text-right">Sent</th><th class="text-right">Replies</th><th class="text-right">Bounces</th><th class="text-right">Unsubs</th><th>Account</th><th>Created</th></tr></thead>
+				<tbody>
+					for _, it := range d.Items {
+						<tr class="hover:bg-[#f6f7fb]" data-href={ "/campaigns/" + it.ID }>
+							<td class="font-medium max-w-[260px] truncate">{ it.Name }</td>
+							<td>@components.StatusBadge(it.Status)</td>
+							<td class="text-right tabular-nums">{ itoa(it.Total) }</td>
+							<td class="text-right tabular-nums">{ itoa(it.Sent) }</td>
+							<td class="text-right tabular-nums">{ itoa(it.Replies) }</td>
+							<td class="text-right tabular-nums">{ itoa(it.Bounces) }</td>
+							<td class="text-right tabular-nums">{ itoa(it.Unsubs) }</td>
+							<td class="text-ink-2">{ it.Account }</td>
+							<td class="text-ink-3 whitespace-nowrap">{ it.Created }</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		</div>
+		if len(d.Items) == 0 {
+			<div class="p-10">@components.EmptyState("megaphone", "No campaigns yet", "Pick an audience, a template and a sending account to launch your first sequence.", components.LinkButton("/campaigns/new", "New Campaign"))</div>
+		}
+	</div>
+}
+
+templ New(p PageMeta, d *NewData) {
+	@components.PageHeader("New Campaign", "Select audience → template → account → schedule.")
+	<div class="card bg-white border border-line rounded-xl shadow-xs p-5 max-w-2xl">
+		if d.Form.Error != "" {
+			<div class="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[12.5px] text-red-800">{ d.Form.Error }</div>
+		}
+		<form method="post" action="/campaigns" class="space-y-3">
+			<input type="hidden" name="_token" value={ p.CSRFToken }/>
+			@components.Input("name", "Campaign name", d.Form.Name, "e.g. Jakarta intros Q3", "text", true)
+			<div class="grid grid-cols-2 gap-3">
+				<div class="space-y-1.5">
+					<label class="block text-[13px] font-medium text-ink-2">Audience</label>
+					<select name="audience" id="audience-sel" class="input h-9 w-full rounded-lg border border-line bg-white px-2.5 text-[13px]" onchange="document.getElementById('aud-seg').classList.toggle('hidden', this.value!=='segment');document.getElementById('aud-list').classList.toggle('hidden', this.value!=='list')">
+						<option value="segment">Segment</option>
+						<option value="list">List</option>
+					</select>
+				</div>
+				<div class="space-y-1.5" id="aud-seg">
+					<label class="block text-[13px] font-medium text-ink-2">Segment</label>
+					<select name="segment_id" class="input h-9 w-full rounded-lg border border-line bg-white px-2.5 text-[13px]">
+						for _, o := range d.Segments {
+							<option value={ o.Value }>{ o.Label }</option>
+						}
+					</select>
+				</div>
+				<div class="space-y-1.5 hidden" id="aud-list">
+					<label class="block text-[13px] font-medium text-ink-2">List</label>
+					<select name="list_id" class="input h-9 w-full rounded-lg border border-line bg-white px-2.5 text-[13px]">
+						for _, o := range d.Lists {
+							<option value={ o.Value }>{ o.Label }</option>
+						}
+					</select>
+				</div>
+			</div>
+			<div class="grid grid-cols-2 gap-3">
+				<div class="space-y-1.5">
+					<label class="block text-[13px] font-medium text-ink-2">Email template (step 1)</label>
+					<select name="template_id" class="input h-9 w-full rounded-lg border border-line bg-white px-2.5 text-[13px]">
+						<option value="">Blank</option>
+						for _, o := range d.Templates {
+							<option value={ o.Value }>{ o.Label }</option>
+						}
+					</select>
+				</div>
+				<div class="space-y-1.5">
+					<label class="block text-[13px] font-medium text-ink-2">Sending account</label>
+					<select name="account_id" class="input h-9 w-full rounded-lg border border-line bg-white px-2.5 text-[13px]">
+						for _, o := range d.Accounts {
+							<option value={ o.Value }>{ o.Label }</option>
+						}
+					</select>
+				</div>
+			</div>
+			@components.Input("scheduled_at", "Start at (optional)", "", "", "datetime-local", false)
+			<button class="h-9 px-4 rounded-lg bg-brand-600 text-white text-[13px] font-medium hover:bg-brand-700">Create draft</button>
+		</form>
+		if len(d.Accounts) == 0 {
+			<p class="mt-3 text-[12.5px] text-amber-700">No sending accounts yet — <a href="/settings/email-accounts" class="underline">add one first</a>.</p>
+		}
+	</div>
+}
+
+templ Detail(p PageMeta, d *DetailData) {
+	@components.PageHeader(d.Name, "Sequence, audience and delivery.") {
+		@detailActions(p, d)
+	}
+	<div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-4">
+		@miniStat("Audience", itoa(d.Total))
+		@miniStat("Sent", itoa(d.Sent))
+		@miniStat("Replies", itoa(d.Replies))
+		@miniStat("Bounces", itoa(d.Bounces))
+	</div>
+	<div class="grid gap-4 lg:grid-cols-[1fr_380px]">
+		<div class="space-y-4 min-w-0">
+			<div class="card bg-white border border-line rounded-xl shadow-xs p-5">
+				<h2 class="text-[14px] font-semibold">Sequence</h2>
+				<div class="mt-3 space-y-3">
+					for _, st := range d.Steps {
+						<div class="rounded-lg border border-line p-3.5">
+							<div class="flex items-center gap-2 text-[13px]">
+								<span class="font-semibold">Step { itoa(st.Position + 1) }</span>
+								@components.Badge(st.Kind, "blue")
+								if st.Kind == "email" {
+									<span class="text-ink-3">day { itoa(st.DayOff) }</span>
+								} else {
+									<span class="text-ink-3">wait { itoa(st.WaitDays) } days</span>
+								}
+								if st.StopReply {
+									<span class="text-[11px] text-ink-3">· stop on reply</span>
+								}
+								<form method="post" action={ templ.URL("/campaigns/" + d.ID + "/steps/" + st.ID + "/delete") } class="ml-auto" data-confirm="Delete this step?">
+									<input type="hidden" name="_token" value={ p.CSRFToken }/>
+									<button class="text-[12px] text-red-700 hover:underline">Delete</button>
+								</form>
+							</div>
+							if st.Kind == "email" {
+								<div class="mt-1.5 text-[13px] font-medium">{ st.Subject }</div>
+								<div class="mt-1 text-[12.5px] text-ink-2 whitespace-pre-wrap max-h-32 overflow-hidden">{ st.Body }</div>
+							}
+						</div>
+					}
+				</div>
+				<form method="post" action={ templ.URL("/campaigns/" + d.ID + "/steps") } class="mt-4 rounded-lg border border-dashed border-line p-3.5 space-y-2.5">
+					<input type="hidden" name="_token" value={ p.CSRFToken }/>
+					<div class="grid grid-cols-3 gap-2.5">
+						@components.Select("kind", "Kind", []string{"email|Email", "wait|Wait"}, "email")
+						@components.Input("day_offset", "Day offset", "3", "", "number", false)
+						@components.Input("wait_days", "Wait days", "2", "", "number", false)
+					</div>
+					@components.Input("subject", "Subject (email steps)", "", "Quick question, {{first_name}}", "text", false)
+					@components.Textarea("body", "Body — {{first_name}} {{company}} {{unsubscribe_url}}", "", "Hi {{first_name}},\n\n…\n\n{{unsubscribe_url}}", 4)
+					<button class="h-8 px-3 rounded-lg border border-line text-[13px] font-medium hover:bg-[#f6f7fb]">Add step</button>
+				</form>
+			</div>
+			<div class="card bg-white border border-line rounded-xl shadow-xs overflow-hidden">
+				<div class="px-4 py-3 border-b border-line"><h2 class="text-[14px] font-semibold">Audience ({ itoa(len(d.Contacts)) } shown)</h2></div>
+				<table class="tbl w-full text-[13px]">
+					<thead><tr><th>Contact</th><th>Email</th><th>Status</th><th class="text-right">Step</th><th>Next send</th></tr></thead>
+					<tbody>
+						for _, c := range d.Contacts {
+							<tr>
+								<td class="font-medium">{ c.Name }</td>
+								<td class="text-ink-2">{ c.Email }</td>
+								<td>@components.StatusBadge(c.Status)</td>
+								<td class="text-right tabular-nums">{ itoa(c.Step + 1) }</td>
+								<td class="text-ink-3">{ c.NextSend }</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			</div>
+		</div>
+		<aside class="card bg-white border border-line rounded-xl shadow-xs p-4 h-fit">
+			@components.SectionTitle("Settings")
+			@components.KV("Status", d.Status)
+			@components.KV("Audience", d.Audience)
+			@components.KV("Account", d.Account)
+			@components.KV("Scheduled", d.Scheduled)
+			@components.KV("Started", d.Started)
+			<form method="post" action={ templ.URL("/campaigns/" + d.ID + "/account") } class="mt-3 space-y-2">
+				<input type="hidden" name="_token" value={ p.CSRFToken }/>
+				<select name="account_id" class="input h-8 w-full rounded-lg border border-line bg-white px-2 text-[13px]">
+					for _, o := range d.Accounts {
+						if o.Value == d.AccountID {
+							<option value={ o.Value } selected>{ o.Label }</option>
+						} else {
+							<option value={ o.Value }>{ o.Label }</option>
+						}
+					}
+				</select>
+				<button class="h-8 w-full rounded-lg bg-ink text-white text-[13px] font-medium">Change account</button>
+			</form>
+		</aside>
+	</div>
+}
+
+templ detailActions(p PageMeta, d *DetailData) {
+	<div class="flex items-center gap-2">
+		if d.Status == "draft" || d.Status == "paused" || d.Status == "scheduled" {
+			<form method="post" action={ templ.URL("/campaigns/" + d.ID + "/launch") }>
+				<input type="hidden" name="_token" value={ p.CSRFToken }/>
+				<button class="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-brand-600 text-white text-[13px] font-medium hover:bg-brand-700">
+					@components.Icon("send", "w-3.5 h-3.5") Launch
+				</button>
+			</form>
+		}
+		if d.Status == "running" {
+			<form method="post" action={ templ.URL("/campaigns/" + d.ID + "/pause") }>
+				<input type="hidden" name="_token" value={ p.CSRFToken }/>
+				<button class="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-white border border-line text-[13px] font-medium hover:bg-[#f6f7fb]">
+					@components.Icon("pause", "w-3.5 h-3.5") Pause
+				</button>
+			</form>
+		}
+		if d.Status == "running" || d.Status == "paused" || d.Status == "scheduled" {
+			<form method="post" action={ templ.URL("/campaigns/" + d.ID + "/cancel") } data-confirm="Cancel this campaign? Already-sent emails stay sent.">
+				<input type="hidden" name="_token" value={ p.CSRFToken }/>
+				<button class="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-white border border-red-200 text-red-700 text-[13px] font-medium hover:bg-red-50">Cancel</button>
+			</form>
+		}
+	</div>
+}
+
+templ miniStat(label, value string) {
+	<div class="card bg-white border border-line rounded-xl shadow-xs p-3">
+		<div class="text-[11px] uppercase tracking-wide text-ink-3">{ label }</div>
+		<div class="mt-0.5 text-[20px] font-semibold tabular-nums">{ value }</div>
+	</div>
+}
+
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	var b [20]byte
+	i := len(b)
+	for n > 0 {
+		i--
+		b[i] = byte('0' + n%10)
+		n /= 10
+	}
+	return string(b[i:])
+}

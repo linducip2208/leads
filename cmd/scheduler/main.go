@@ -37,6 +37,11 @@ func main() {
 		cont.Log.Error("register watchdog", "err", err)
 		os.Exit(1)
 	}
+	tickTask := asynq.NewTask(queue.TypeOutreachTick, nil)
+	if _, err := sched.Register("@every 1m", tickTask, asynq.Queue(queue.QOutreach)); err != nil {
+		cont.Log.Error("register outreach tick", "err", err)
+		os.Exit(1)
+	}
 
 	go func() {
 		t := time.NewTicker(10 * time.Second)
