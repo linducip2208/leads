@@ -167,6 +167,35 @@ buttons; tasks (call/email/WhatsApp/meeting/follow-up/general) and the
 activity feed cover follow-ups. Segments are dynamic filters, lists are manual
 (via the Leads bulk bar).
 
+## Team, roles & audit
+
+Settings → Members (add/suspend, assign roles — passwords are set by the
+admin and shared out-of-band) and Settings → Roles (system roles read-only,
+tenant roles with any permission subset). Security-relevant actions
+(login, invites, role changes, searches, launches, key/webhook changes) append
+to `audit_logs`, viewable at Admin → Logs.
+
+## REST API & webhooks
+
+Settings → API Keys issues Bearer keys (`lf_…`, prefix + sha256, scopes
+`read`/`write`, expiry, revocation, 600 req/min per key):
+
+- `GET /api/v1/leads` (keyset `cursor`, filters) · `GET /api/v1/leads/{id}`
+- `GET /api/v1/companies` · `GET /api/v1/companies/{id}`
+- `GET /api/v1/searches` · `POST /api/v1/searches` → 201 + queued ·
+  `GET /api/v1/searches/{id}` (live progress)
+
+Settings → Webhooks subscribes `search.completed`, `lead.qualified`,
+`campaign.completed` to HTTPS endpoints, signed (`X-Signature-256` HMAC,
+`X-Timestamp`, `X-Event`), delivered by the worker with retries; attempts are
+logged. Inbound email uses the same HMAC scheme (or legacy `?key=`).
+
+## Billing groundwork
+
+Settings → Billing shows plan, limits, monthly meters and credit balance;
+superadmins assign plans and suspend tenants under Admin → Tenants. No payment
+provider is wired — upgrades are administrator actions.
+
 ## Campaigns & outreach
 
 Audience (segment/list) → template → sequence steps → sending account →

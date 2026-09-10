@@ -68,6 +68,9 @@ type Deps struct {
 	Registry *source.Registry
 	Verifier verify.Verifier
 	Enricher enrichment.Provider
+	// Emit fans out platform events (search.completed, lead.qualified) to
+	// webhooks. Nil disables (tests, benchmarks, imports).
+	Emit func(tenantID, event string, payload map[string]any)
 }
 
 // SourceStat tracks per-source discovery telemetry for the search report.
@@ -334,6 +337,12 @@ func (r *Runner) Finish(ctx context.Context, j *Job, status, errMsg string) {
 		SELECT COALESCE(EXTRACT(EPOCH FROM (now()-s.started_at)),0)::int, $2, $3, $4, 0
 		FROM lead_searches s WHERE s.id=$1`,
 		j.Search.ID, j.crawled.Load(), j.crawled.Load(), j.failed.Load())
+	if r.deps.Emit != nil && status == "completed" {
+		r.deps.Emit(j.Search.TenantID, "search.completed", map[string]any{
+			"search_id": j.Search.ID, "found": j.found.Load(), "saved": j.saved.Load(),
+			"qualified": j.qualified.Load(), "failed": j.failed.Load(),
+		})
+	}
 	j.Search.Status = status
 }
 

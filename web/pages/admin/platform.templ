@@ -1,0 +1,169 @@
+package admin
+
+import "leadforge/web/components"
+
+templ Tenants(p PageMeta, d *TenantsData) {
+	@components.PageHeader("Tenants", "All workspaces on the platform.")
+	<div class="card bg-white border border-line rounded-xl shadow-xs overflow-hidden">
+		<div class="overflow-x-auto">
+			<table class="tbl w-full text-[13px]">
+				<thead><tr><th>Workspace</th><th>Status</th><th>Plan</th><th class="text-right">Users</th><th class="text-right">Leads</th><th>Created</th></tr></thead>
+				<tbody>
+					for _, t := range d.Tenants {
+						<tr class="hover:bg-[#f6f7fb]" data-href={ "/admin/tenants/" + t.ID }>
+							<td><div class="font-medium">{ t.Name }</div><div class="text-[11px] text-ink-3">{ t.Slug }</div></td>
+							<td>@components.StatusBadge(t.Status)</td>
+							<td class="text-ink-2">{ t.Plan }</td>
+							<td class="text-right tabular-nums">{ itoa(t.Users) }</td>
+							<td class="text-right tabular-nums">{ itoa(t.Leads) }</td>
+							<td class="text-ink-3 whitespace-nowrap">{ t.Created }</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		</div>
+	</div>
+}
+
+templ TenantDetail(p PageMeta, d *TenantDetailData) {
+	@components.PageHeader(d.Tenant.Name, "Workspace detail and plan assignment.")
+	<div class="grid gap-4 lg:grid-cols-2">
+		<div class="card bg-white border border-line rounded-xl shadow-xs p-4 h-fit">
+			@components.SectionTitle("Profile")
+			@components.KV("Slug", d.Tenant.Slug)
+			@components.KV("Status", d.Tenant.Status)
+			@components.KV("Plan", d.Tenant.Plan)
+			@components.KV("Users", itoa(d.Tenant.Users))
+			@components.KV("Leads", itoa(d.Tenant.Leads))
+			<form method="post" action={ templ.URL("/admin/tenants/" + d.Tenant.ID + "/status") } class="mt-3">
+				<input type="hidden" name="_token" value={ p.CSRFToken }/>
+				if d.Tenant.Status == "active" {
+					<button name="status" value="suspended" class="h-8 px-3 rounded-lg border border-red-200 text-red-700 text-[13px] font-medium hover:bg-red-50">Suspend</button>
+				} else {
+					<button name="status" value="active" class="h-8 px-3 rounded-lg border border-line text-[13px] font-medium hover:bg-[#f6f7fb]">Activate</button>
+				}
+			</form>
+		</div>
+		<div class="card bg-white border border-line rounded-xl shadow-xs p-4 h-fit">
+			@components.SectionTitle("Plan")
+			for _, pl := range d.Plans {
+				<div class="flex items-center gap-2 py-2 border-b border-[#f0f1f6] last:border-0 text-[13px]">
+					<div class="min-w-0 flex-1">
+						<div class="font-medium">{ pl.Name } <span class="text-ink-3 font-normal">{ pl.Price }</span></div>
+						<div class="text-[11.5px] text-ink-3 truncate">{ pl.Limits }</div>
+					</div>
+					if pl.Current {
+						@components.Badge("current", "green")
+					} else {
+						<form method="post" action={ templ.URL("/admin/tenants/" + d.Tenant.ID + "/plan") }>
+							<input type="hidden" name="_token" value={ p.CSRFToken }/>
+							<input type="hidden" name="plan_id" value={ pl.ID }/>
+							<button class="h-7 px-2.5 rounded-md border border-line text-[12px] hover:bg-[#f6f7fb]">Assign</button>
+						</form>
+					}
+				</div>
+			}
+		</div>
+	</div>
+}
+
+templ Plans(p PageMeta, d *PlansData) {
+	@components.PageHeader("Plans", "Billing plans and their limits.")
+	<div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+		for _, pl := range d.Plans {
+			<div class="card bg-white border border-line rounded-xl shadow-xs p-4">
+				<div class="text-[14px] font-semibold">{ pl.Name }</div>
+				<div class="text-[20px] font-semibold tabular-nums mt-0.5">{ pl.Price }</div>
+				<div class="mt-2 text-[12px] text-ink-3 break-words">{ pl.Limits }</div>
+			</div>
+		}
+	</div>
+}
+
+templ Users(p PageMeta, d *UsersData) {
+	@components.PageHeader("Users", "Every account on the platform.")
+	<div class="card bg-white border border-line rounded-xl shadow-xs overflow-hidden">
+		<div class="overflow-x-auto">
+			<table class="tbl w-full text-[13px]">
+				<thead><tr><th>User</th><th>Workspace</th><th>Status</th><th>Super</th><th>Joined</th><th class="text-right">Actions</th></tr></thead>
+				<tbody>
+					for _, u := range d.Users {
+						<tr>
+							<td><div class="font-medium">{ u.Name }</div><div class="text-[11px] text-ink-3">{ u.Email }</div></td>
+							<td class="text-ink-2">{ u.Tenant }</td>
+							<td>@components.StatusBadge(u.Status)</td>
+							<td>
+								if u.Super {
+									@components.Badge("super", "brand")
+								}
+							</td>
+							<td class="text-ink-3 whitespace-nowrap">{ u.Joined }</td>
+							<td class="text-right">
+								<form method="post" action={ templ.URL("/admin/users/" + u.ID + "/toggle") } class="inline">
+									<input type="hidden" name="_token" value={ p.CSRFToken }/>
+									<button class="h-7 px-2 rounded-md border border-line text-[12px] hover:bg-[#f6f7fb]">Suspend/Activate</button>
+								</form>
+							</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		</div>
+	</div>
+}
+
+templ Usage(p PageMeta, d *UsageData) {
+	@components.PageHeader("Usage", "This month's metered events and credit balances.")
+	<div class="card bg-white border border-line rounded-xl shadow-xs overflow-hidden">
+		<div class="overflow-x-auto">
+			<table class="tbl w-full text-[13px]">
+				<thead><tr><th>Workspace</th><th class="text-right">Search</th><th class="text-right">Crawl</th><th class="text-right">Enrich</th><th class="text-right">Email</th><th class="text-right">Credits</th></tr></thead>
+				<tbody>
+					for _, u := range d.Rows {
+						<tr>
+							<td class="font-medium">{ u.Tenant }</td>
+							<td class="text-right tabular-nums">{ itoa(u.Search) }</td>
+							<td class="text-right tabular-nums">{ itoa(u.Crawl) }</td>
+							<td class="text-right tabular-nums">{ itoa(u.Enrich) }</td>
+							<td class="text-right tabular-nums">{ itoa(u.Email) }</td>
+							<td class="text-right tabular-nums">{ itoa(u.Credits) }</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		</div>
+		if len(d.Rows) == 0 {
+			<div class="p-8 text-center text-[13px] text-ink-3">No usage recorded yet.</div>
+		}
+	</div>
+}
+
+templ Logs(p PageMeta, d *LogsData) {
+	@components.PageHeader("Audit Logs", "Security-relevant actions across the platform.")
+	<div class="card bg-white border border-line rounded-xl shadow-xs">
+		<form method="get" action="/admin/logs" class="px-4 py-3 border-b border-line bg-[#fafbfd] flex gap-2.5">
+			<input type="search" name="action" value={ d.Action } placeholder="Filter action… e.g. member.add" class="input h-8 rounded-lg border border-line bg-white px-2.5 text-[13px] w-64 focus:border-brand-400 focus:outline-none"/>
+			<button class="h-8 px-3 rounded-lg bg-brand-600 text-white text-[13px] font-medium hover:bg-brand-700">Filter</button>
+		</form>
+		<div class="overflow-x-auto">
+			<table class="tbl w-full text-[13px]">
+				<thead><tr><th>Action</th><th>Entity</th><th>User</th><th>Workspace</th><th>IP</th><th>When</th></tr></thead>
+				<tbody>
+					for _, l := range d.Logs {
+						<tr>
+							<td class="font-medium">{ l.Action }</td>
+							<td class="text-ink-2">{ l.Entity } { l.Target }</td>
+							<td class="text-ink-2">{ l.User }</td>
+							<td class="text-ink-2">{ l.Tenant }</td>
+							<td class="text-ink-3">{ l.IP }</td>
+							<td class="text-ink-3 whitespace-nowrap">{ l.When }</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		</div>
+		if len(d.Logs) == 0 {
+			<div class="p-8 text-center text-[13px] text-ink-3">No audit entries match.</div>
+		}
+	</div>
+}

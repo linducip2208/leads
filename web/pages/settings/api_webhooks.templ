@@ -1,0 +1,134 @@
+package settings
+
+import "leadforge/web/components"
+
+templ APIKeys(p PageMeta, d *APIKeysData) {
+	@components.PageHeader("API Keys", "Bearer keys for the REST API v1. The secret shows once — store it now.")
+	if d.Error != "" {
+		<div class="mb-4 rounded-lg border border-red-200 bg-red-50 px-3.5 py-2.5 text-[13px] text-red-800">{ d.Error }</div>
+	}
+	if d.NewKey != "" {
+		<div class="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-3 text-[13px]">
+			<div class="font-semibold text-emerald-800">Key created for “{ d.NewName }” — copy it now, it won't show again:</div>
+			<code class="mt-1.5 block rounded-md bg-white border border-emerald-200 px-2.5 py-2 text-[12.5px] break-all select-all">{ d.NewKey }</code>
+		</div>
+	}
+	<div class="grid gap-4 lg:grid-cols-[1fr_380px]">
+		<div class="card bg-white border border-line rounded-xl shadow-xs overflow-hidden h-fit">
+			<table class="tbl w-full text-[13px]">
+				<thead><tr><th>Name</th><th>Prefix</th><th>Scopes</th><th>Last used</th><th>Expires</th><th class="text-right">Actions</th></tr></thead>
+				<tbody>
+					for _, k := range d.Keys {
+						<tr>
+							<td class="font-medium">{ k.Name }</td>
+							<td class="text-ink-2 font-mono text-[12px]">{ k.Prefix }…</td>
+							<td class="text-ink-2">{ k.Scopes }</td>
+							<td class="text-ink-3 whitespace-nowrap">{ k.LastUsed }</td>
+							<td class="text-ink-3 whitespace-nowrap">{ k.Expires }</td>
+							<td class="text-right">
+								<form method="post" action={ templ.URL("/settings/api-keys/" + k.ID + "/revoke") } data-confirm="Revoke this key? Integrations using it stop working.">
+									<input type="hidden" name="_token" value={ p.CSRFToken }/>
+									<button class="h-7 px-2 rounded-md border border-line text-[12px] text-red-700 hover:bg-red-50">Revoke</button>
+								</form>
+							</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+			if len(d.Keys) == 0 {
+				<div class="p-6 text-center text-[13px] text-ink-3">No API keys yet.</div>
+			}
+		</div>
+		<aside class="card bg-white border border-line rounded-xl shadow-xs p-4 h-fit">
+			<h2 class="text-[14px] font-semibold mb-3">New key</h2>
+			<form method="post" action="/settings/api-keys" class="space-y-3">
+				<input type="hidden" name="_token" value={ p.CSRFToken }/>
+				@components.Input("name", "Name", "", "e.g. n8n sync", "text", true)
+				<div class="flex gap-4">
+					@components.Checkbox("scope_read", "read", true)
+					@components.Checkbox("scope_write", "write", false)
+				</div>
+				@components.Input("expires_days", "Expires in days (blank = never)", "", "90", "number", false)
+				<button class="h-9 w-full rounded-lg bg-brand-600 text-white text-[13px] font-medium hover:bg-brand-700">Create key</button>
+			</form>
+		</aside>
+	</div>
+}
+
+templ Webhooks(p PageMeta, d *WebhooksData) {
+	@components.PageHeader("Webhooks", "POST JSON on platform events, signed with HMAC-SHA256.")
+	if d.Error != "" {
+		<div class="mb-4 rounded-lg border border-red-200 bg-red-50 px-3.5 py-2.5 text-[13px] text-red-800">{ d.Error }</div>
+	}
+	<div class="grid gap-4 lg:grid-cols-[1fr_380px]">
+		<div class="space-y-4">
+			<div class="card bg-white border border-line rounded-xl shadow-xs overflow-hidden">
+				<table class="tbl w-full text-[13px]">
+					<thead><tr><th>URL</th><th>Events</th><th>Active</th><th class="text-right">Actions</th></tr></thead>
+					<tbody>
+						for _, h := range d.Hooks {
+							<tr>
+								<td class="font-medium max-w-[280px] truncate">{ h.URL }</td>
+								<td class="text-ink-2 max-w-[240px] truncate">{ h.Events }</td>
+								<td>
+									if h.Active {
+										@components.Badge("active", "green")
+									} else {
+										@components.Badge("paused", "gray")
+									}
+								</td>
+								<td class="text-right whitespace-nowrap">
+									<form method="post" action={ templ.URL("/settings/webhooks/" + h.ID + "/toggle") } class="inline">
+										<input type="hidden" name="_token" value={ p.CSRFToken }/>
+										<button class="h-7 px-2 rounded-md border border-line text-[12px] hover:bg-[#f6f7fb]">Toggle</button>
+									</form>
+									<form method="post" action={ templ.URL("/settings/webhooks/" + h.ID + "/delete") } class="inline ml-1" data-confirm="Delete this webhook?">
+										<input type="hidden" name="_token" value={ p.CSRFToken }/>
+										<button class="h-7 px-2 rounded-md border border-line text-[12px] text-red-700 hover:bg-red-50">Delete</button>
+									</form>
+								</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+				if len(d.Hooks) == 0 {
+					<div class="p-6 text-center text-[13px] text-ink-3">No webhooks yet.</div>
+				}
+			</div>
+			<div class="card bg-white border border-line rounded-xl shadow-xs overflow-hidden">
+				<div class="px-4 py-3 border-b border-line"><h2 class="text-[14px] font-semibold">Recent deliveries</h2></div>
+				<table class="tbl w-full text-[13px]">
+					<thead><tr><th>Event</th><th>Status</th><th class="text-right">Code</th><th>When</th></tr></thead>
+					<tbody>
+						for _, dl := range d.Deliveries {
+							<tr>
+								<td class="font-medium">{ dl.Event }</td>
+								<td>@components.StatusBadge(dl.Status)</td>
+								<td class="text-right tabular-nums">{ dl.Code }</td>
+								<td class="text-ink-3 whitespace-nowrap">{ dl.When }</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			</div>
+		</div>
+		<aside class="card bg-white border border-line rounded-xl shadow-xs p-4 h-fit">
+			<h2 class="text-[14px] font-semibold mb-3">New webhook</h2>
+			<form method="post" action="/settings/webhooks" class="space-y-3">
+				<input type="hidden" name="_token" value={ p.CSRFToken }/>
+				@components.Input("url", "Payload URL", "", "https://…", "text", true)
+				<div class="space-y-1.5">
+					<div class="text-[13px] font-medium text-ink-2">Events</div>
+					<div class="grid grid-cols-1 gap-1">
+						@components.Checkbox("ev_search", "search.completed", true)
+						@components.Checkbox("ev_qualified", "lead.qualified", true)
+						@components.Checkbox("ev_campaign", "campaign.completed", false)
+					</div>
+				</div>
+				@components.Input("secret", "Signing secret (blank = auto)", "", "", "text", false)
+				<button class="h-9 w-full rounded-lg bg-brand-600 text-white text-[13px] font-medium hover:bg-brand-700">Create webhook</button>
+			</form>
+			<p class="mt-3 text-[12px] text-ink-3">Headers: X-Signature-256 (HMAC hex of body), X-Timestamp, X-Event.</p>
+		</aside>
+	</div>
+}

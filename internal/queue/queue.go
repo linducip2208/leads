@@ -22,6 +22,7 @@ const (
 	TypeLeadRefresh     = "lead:refresh"
 	TypeLeadBulkRefresh = "lead:bulk-refresh"
 	TypeRefreshStale    = "maintenance:refresh-stale"
+	TypeWebhookDeliver  = "webhook:deliver"
 )
 
 // Queue names.
@@ -58,6 +59,13 @@ type RefreshPayload struct {
 // BulkRefreshPayload refreshes up to 100 leads.
 type BulkRefreshPayload struct {
 	LeadIDs []string `json:"lead_ids"`
+}
+
+// WebhookPayload delivers one signed event.
+type WebhookPayload struct {
+	WebhookID string `json:"webhook_id"`
+	Event     string `json:"event"`
+	Body      []byte `json:"body"`
 }
 
 // RedisOpt builds asynq redis options from an address.
@@ -139,6 +147,14 @@ func (cl *Client) EnqueueLeadBulkRefresh(ctx context.Context, ids []string) erro
 func (cl *Client) EnqueueRefreshStale(ctx context.Context) error {
 	_, err := cl.c.EnqueueContext(ctx, asynq.NewTask(TypeRefreshStale, nil),
 		asynq.Queue(QMaintenance), asynq.MaxRetry(1), asynq.Unique(20*time.Hour))
+	return err
+}
+
+// EnqueueWebhook queues one signed delivery (retried with backoff by asynq).
+func (cl *Client) EnqueueWebhook(ctx context.Context, webhookID, event string, body []byte) error {
+	payload, _ := json.Marshal(WebhookPayload{WebhookID: webhookID, Event: event, Body: body})
+	_, err := cl.c.EnqueueContext(ctx, asynq.NewTask(TypeWebhookDeliver, payload),
+		asynq.Queue(QMaintenance), asynq.MaxRetry(3), asynq.Timeout(2*time.Minute))
 	return err
 }
 

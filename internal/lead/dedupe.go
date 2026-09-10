@@ -3,6 +3,8 @@ package lead
 import (
 	"context"
 	"strings"
+	"sync/atomic"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -73,42 +75,26 @@ func FindDuplicate(ctx context.Context, pool *pgxpool.Pool, tenantID string, n N
 			consider(&Match{CompanyID: id, Kind: "email", Confidence: conf})
 		}
 	}
-	// 5-6. name signals (fuzzy, legal-entity aware). Candidate prefilter on
-	// first/last token keeps this bounded without pg_trgm.
+	// 5-6. name signals (fuzzy, legal-entity aware). With pg_trgm we rank by
+	// similarity server-side; otherwise a bounded LIKE prefilter applies.
 	if n.Name != "" {
-		toks := LegalTokens(n.Name)
-		like1, like2 := "%", "%"
-		if len(toks) > 0 {
-			like1 = toks[0] + "%"
-			like2 = "%" + toks[len(toks)-1]
-		}
-		rows, err := pool.Query(ctx, `SELECT id::text, name, COALESCE(city,'') FROM companies
-			WHERE tenant_id=$1 AND (lower(name) LIKE $2 OR lower(name) LIKE $3) LIMIT 200`,
-			tenantID, like1, like2)
-		if err == nil {
-			defer rows.Close()
-			for rows.Next() {
-				var id, cname, ccity string
-				if err := rows.Scan(&id, &cname, &ccity); err != nil {
-					continue
+		for _, c := range nameCandidates(ctx, pool, tenantID, n.Name) {
+			sim := NameSimilarity(n.Name, c.name)
+			switch {
+			case sim >= 0.99:
+				if n.City != "" && strings.EqualFold(c.city, n.City) {
+					consider(&Match{CompanyID: c.id, Kind: "name_address", Confidence: 80})
+				} else {
+					consider(&Match{CompanyID: c.id, Kind: "name", Confidence: 55})
 				}
-				sim := NameSimilarity(n.Name, cname)
-				switch {
-				case sim >= 0.99:
-					if n.City != "" && strings.EqualFold(ccity, n.City) {
-						consider(&Match{CompanyID: id, Kind: "name_address", Confidence: 80})
-					} else {
-						consider(&Match{CompanyID: id, Kind: "name", Confidence: 55})
-					}
-				case sim >= 0.8:
-					if n.City != "" && strings.EqualFold(ccity, n.City) {
-						consider(&Match{CompanyID: id, Kind: "fuzzy", Confidence: 75})
-					} else {
-						consider(&Match{CompanyID: id, Kind: "fuzzy", Confidence: 55})
-					}
-				case sim >= 0.6 && n.City != "" && strings.EqualFold(ccity, n.City):
-					consider(&Match{CompanyID: id, Kind: "fuzzy", Confidence: 50})
+			case sim >= 0.8:
+				if n.City != "" && strings.EqualFold(c.city, n.City) {
+					consider(&Match{CompanyID: c.id, Kind: "fuzzy", Confidence: 75})
+				} else {
+					consider(&Match{CompanyID: c.id, Kind: "fuzzy", Confidence: 55})
 				}
+			case sim >= 0.6 && n.City != "" && strings.EqualFold(c.city, n.City):
+				consider(&Match{CompanyID: c.id, Kind: "fuzzy", Confidence: 50})
 			}
 		}
 	}
@@ -120,7 +106,69 @@ func FindDuplicate(ctx context.Context, pool *pgxpool.Pool, tenantID string, n N
 	return best, nil
 }
 
-// DuplicateScore is a small helper for UI display of raw duplicate flags.
+type nameCand struct {
+	id   string
+	name string
+	city string
+}
+
+// trigramOK caches pg_trgm availability (10 min TTL).
+var trigramCache atomic.Int64 // unix nano of expiry, >0 = available
+
+func trgmAvailable(ctx context.Context, pool *pgxpool.Pool) bool {
+	if time.Now().UnixNano() < trigramCache.Load() {
+		return trigramCache.Load() > 1
+	}
+	var ok bool
+	_ = pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname='pg_trgm')`).Scan(&ok)
+	if ok {
+		trigramCache.Store(time.Now().Add(10 * time.Minute).UnixNano())
+	} else {
+		trigramCache.Store(1) // negative cache marker (past time, false)
+	}
+	return ok
+}
+
+// nameCandidates prefilters companies by trigram similarity when available,
+// else by first/last token LIKE. Bounded at 200 rows either way.
+func nameCandidates(ctx context.Context, pool *pgxpool.Pool, tenantID, name string) []nameCand {
+	var out []nameCand
+	if trgmAvailable(ctx, pool) {
+		rows, err := pool.Query(ctx, `SELECT id::text, name, COALESCE(city,'') FROM companies
+			WHERE tenant_id=$1 AND lower(name) % lower($2)
+			ORDER BY similarity(lower(name), lower($2)) DESC LIMIT 200`, tenantID, name)
+		if err == nil {
+			defer rows.Close()
+			for rows.Next() {
+				var c nameCand
+				if err := rows.Scan(&c.id, &c.name, &c.city); err == nil {
+					out = append(out, c)
+				}
+			}
+			return out
+		}
+	}
+	toks := LegalTokens(name)
+	like1, like2 := "%", "%"
+	if len(toks) > 0 {
+		like1 = toks[0] + "%"
+		like2 = "%" + toks[len(toks)-1]
+	}
+	rows, err := pool.Query(ctx, `SELECT id::text, name, COALESCE(city,'') FROM companies
+		WHERE tenant_id=$1 AND (lower(name) LIKE $2 OR lower(name) LIKE $3) LIMIT 200`,
+		tenantID, like1, like2)
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var c nameCand
+		if err := rows.Scan(&c.id, &c.name, &c.city); err == nil {
+			out = append(out, c)
+		}
+	}
+	return out
+}
 func DuplicateScore(confidence int) string {
 	switch {
 	case confidence >= 90:

@@ -19,8 +19,15 @@ type navGroup struct {
 	Items []navItem
 }
 
-func navGroups() []navGroup {
-	return []navGroup{
+// brandOf returns the tenant white-label brand or the default app name.
+func brandOf(page webapp.Page, d *webapp.Renderer) string {
+	if page.BrandName != "" {
+		return page.BrandName
+	}
+	return d.AppName
+}
+
+func navGroups() []navGroup {	return []navGroup{
 		{Label: "", Items: []navItem{
 			{Label: "Dashboard", Href: "/", Icon: "layout-dashboard"},
 		}},
@@ -61,13 +68,24 @@ func navGroups() []navGroup {
 		}},
 		{Label: "Settings", Items: []navItem{
 			{Label: "Workspace", Href: "/settings/workspace", Icon: "briefcase", Perm: "tenant.manage"},
+			{Label: "Members", Href: "/settings/members", Icon: "user-plus", Perm: "team.manage"},
+			{Label: "Roles", Href: "/settings/roles", Icon: "shield", Perm: "team.manage"},
 			{Label: "Email Accounts", Href: "/settings/email-accounts", Icon: "mail", Perm: "integration.manage"},
 			{Label: "Integrations", Href: "/settings/integrations", Icon: "webhook", Perm: "integration.manage"},
+			{Label: "API Keys", Href: "/settings/api-keys", Icon: "key", Perm: "integration.manage"},
+			{Label: "Webhooks", Href: "/settings/webhooks", Icon: "webhook", Perm: "integration.manage"},
+			{Label: "Billing", Href: "/settings/billing", Icon: "credit-card", Perm: "billing.manage"},
+			{Label: "White Label", Href: "/settings/white-label", Icon: "palette", Perm: "tenant.manage"},
 		}},
 		{Label: "Super Admin", Items: []navItem{
+			{Label: "Tenants", Href: "/admin/tenants", Icon: "briefcase", Perm: "admin.platform"},
+			{Label: "Plans", Href: "/admin/plans", Icon: "layers", Perm: "admin.platform"},
+			{Label: "Users", Href: "/admin/users", Icon: "users", Perm: "admin.platform"},
+			{Label: "Usage", Href: "/admin/usage", Icon: "bar-chart-3", Perm: "admin.platform"},
 			{Label: "Queue", Href: "/admin/queue", Icon: "cpu", Perm: "admin.platform"},
 			{Label: "Crawlers", Href: "/admin/crawlers", Icon: "globe", Perm: "admin.platform"},
 			{Label: "Sources", Href: "/admin/sources", Icon: "radar", Perm: "admin.platform"},
+			{Label: "Logs", Href: "/admin/logs", Icon: "file-text", Perm: "admin.platform"},
 			{Label: "System Health", Href: "/admin/health", Icon: "server", Perm: "admin.platform"},
 		}},
 	}
@@ -115,13 +133,12 @@ templ sidebarNav(active string, id *webapp.Identity) {
 }
 
 // AppShell renders the full authenticated application frame.
-templ AppShell(d *webapp.Renderer, id *webapp.Identity, page webapp.Page, content templ.Component) {
-	<!DOCTYPE html>
+templ AppShell(d *webapp.Renderer, id *webapp.Identity, page webapp.Page, content templ.Component) {	<!DOCTYPE html>
 	<html lang="en" class="h-full">
 	<head>
 		<meta charset="utf-8"/>
 		<meta name="viewport" content="width=device-width, initial-scale=1"/>
-		<title>{ page.Title } · { d.AppName }</title>
+		<title>{ page.Title } · { brandOf(page, d) }</title>
 		<link rel="stylesheet" href="/static/css/app.css"/>
 		<script src="/static/js/htmx.min.js" defer></script>
 		<script src="/static/js/app.js" defer></script>
@@ -135,7 +152,7 @@ templ AppShell(d *webapp.Renderer, id *webapp.Identity, page webapp.Page, conten
 				fixed inset-y-0 left-0 hidden lg:flex">
 				<div class="h-14 flex items-center gap-2.5 px-4 border-b border-line shrink-0">
 					<div class="w-7 h-7 rounded-lg bg-brand-600 text-white flex items-center justify-center text-[13px] font-bold">L</div>
-					<span class="sb-label font-semibold tracking-tight text-[15px]">{ d.AppName }</span>
+					<span class="sb-label font-semibold tracking-tight text-[15px]">{ brandOf(page, d) }</span>
 				</div>
 				@sidebarNav(page.ActiveNav, id)
 				<div class="border-t border-line p-3 shrink-0">

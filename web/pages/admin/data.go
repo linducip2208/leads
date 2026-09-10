@@ -85,3 +85,89 @@ type SourceStatRow struct {
 	LastOK     string
 	LastError  string
 }
+
+// TenantRow is one tenant for superadmin.
+type TenantRow struct {
+	ID      string
+	Name    string
+	Slug    string
+	Status  string
+	Plan    string
+	Users   int
+	Leads   int
+	Created string
+}
+
+// TenantsData powers the tenants page.
+type TenantsData struct {
+	Tenants []TenantRow
+}
+
+// TenantDetailData powers tenant detail + plan assignment.
+type TenantDetailData struct {
+	Tenant TenantRow
+	Plans  []PlanRow
+}
+
+// PlanRow is one billing plan.
+type PlanRow struct {
+	ID      string
+	Slug    string
+	Name    string
+	Price   string
+	Current bool
+	Limits  string
+}
+
+// PlansData powers the plans page.
+type PlansData struct {
+	Plans []PlanRow
+}
+
+// AdminUserRow is one user for superadmin.
+type AdminUserRow struct {
+	ID     string
+	Name   string
+	Email  string
+	Tenant string
+	Status string
+	Super  bool
+	Joined string
+}
+
+// UsersData powers the admin users page.
+type UsersData struct {
+	Users []AdminUserRow
+}
+
+// UsageRow is per-tenant monthly usage.
+type UsageRow struct {
+	Tenant  string
+	Search  int
+	Crawl   int
+	Enrich  int
+	Email   int
+	Credits int
+}
+
+// UsageData powers the usage page.
+type UsageData struct {
+	Rows []UsageRow
+}
+
+// LogRow is one audit entry.
+type LogRow struct {
+	Action string
+	Entity string
+	Target string
+	User   string
+	Tenant string
+	IP     string
+	When   string
+}
+
+// LogsData powers the audit log viewer.
+type LogsData struct {
+	Logs   []LogRow
+	Action string
+}

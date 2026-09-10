@@ -18,10 +18,14 @@ func (s *Server) routes() {
 	s.crmRoutes()
 	s.intelRoutes()
 	s.adminRoutes()
+	s.adminPlatformRoutes()
 	s.campaignRoutes()
 	s.settingsRoutes()
 	s.analyticsRoutes()
 	s.exportRoutes()
+	s.teamRoutes()
+	s.settingsAPIKeysRoutes()
+	s.apiRoutes()
 
 	// static
 	s.Router.MountPrefix("/static/", http.StripPrefix("/static/", s.staticHandler()))

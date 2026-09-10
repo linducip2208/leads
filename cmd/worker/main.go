@@ -19,6 +19,7 @@ import (
 	"leadforge/internal/queue"
 	"leadforge/internal/search"
 	"leadforge/internal/session"
+	"leadforge/internal/webhookstore"
 )
 
 func main() {
@@ -35,7 +36,16 @@ func main() {
 		cont.Log.Warn("ensure system roles", "err", err)
 	}
 
-	runner := search.NewRunner(search.NewDeps(cont.PG, cont.Cfg, cont.Log, os.Getenv("GOOGLE_PLACES_API_KEY")))
+	qcEmit := queue.NewClient(cont.Cfg.RedisAddr)
+	defer qcEmit.Close()
+	searchDeps := search.NewDeps(cont.PG, cont.Cfg, cont.Log, os.Getenv("GOOGLE_PLACES_API_KEY"))
+	searchDeps.Emit = func(tenantID, event string, payload map[string]any) {
+		webhookstore.Emit(context.Background(), cont.PG, tenantID, event, payload,
+			func(webhookID, ev string, body []byte) error {
+				return qcEmit.EnqueueWebhook(context.Background(), webhookID, ev, body)
+			})
+	}
+	runner := search.NewRunner(searchDeps)
 	sess := session.NewManager(cont.PG, cont.Cfg.SessionSecret, cont.Cfg.SessionTTL, cont.Cfg.IsProd())
 
 	mux := asynq.NewServeMux()
@@ -88,6 +98,19 @@ func main() {
 			return err
 		}
 		cont.Log.Info("outreach batch done", "campaign", p.CampaignID, "sent", sent)
+		// auto-complete drained campaigns + emit
+		var open int
+		_ = cont.PG.QueryRow(ctx, `SELECT COUNT(*) FROM campaign_contacts WHERE campaign_id=$1::uuid AND status IN ('pending','active')`, p.CampaignID).Scan(&open)
+		if open == 0 {
+			var tid string
+			_ = cont.PG.QueryRow(ctx, `UPDATE campaigns SET status='completed', completed_at=now() WHERE id=$1::uuid AND status='running' RETURNING tenant_id::text`, p.CampaignID).Scan(&tid)
+			if tid != "" {
+				webhookstore.Emit(ctx, cont.PG, tid, "campaign.completed", map[string]any{"campaign_id": p.CampaignID},
+					func(wid, ev string, body []byte) error {
+						return qcEmit.EnqueueWebhook(ctx, wid, ev, body)
+					})
+			}
+		}
 		return nil
 	})
 	mux.HandleFunc(queue.TypeLeadRefresh, func(ctx context.Context, t *asynq.Task) error {
@@ -113,6 +136,13 @@ func main() {
 		n := runner.RefreshStale(ctx, 50)
 		cont.Log.Info("stale refresh done", "refreshed", n)
 		return nil
+	})
+	mux.HandleFunc(queue.TypeWebhookDeliver, func(ctx context.Context, t *asynq.Task) error {
+		var p queue.WebhookPayload
+		if err := json.Unmarshal(t.Payload(), &p); err != nil || p.WebhookID == "" {
+			return nil
+		}
+		return webhookstore.Deliver(ctx, cont.PG, cont.Cfg.SessionSecret, p.WebhookID, p.Event, p.Body)
 	})
 	mux.HandleFunc(queue.TypeWatchdog, func(ctx context.Context, _ *asynq.Task) error {
 		staleMin := cont.Cfg.WatchdogStaleMinutes

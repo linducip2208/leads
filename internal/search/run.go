@@ -532,6 +532,11 @@ func (r *Runner) persistNew(ctx context.Context, j *Job, cand source.RawLead, n 
 			INSERT INTO activities (tenant_id, kind, subject, lead_id, company_id, user_id)
 			VALUES ($1,'lead.qualified',$2,$3,$4,$5)`,
 			tid, n.Name+" qualified ("+itoa(score)+")", leadID, companyID, nullUUID(j.Search.UserID))
+		if d.Emit != nil {
+			d.Emit(tid, "lead.qualified", map[string]any{
+				"lead_id": leadID, "company": n.Name, "score": score, "search_id": j.Search.ID,
+			})
+		}
 	}
 	_, _ = d.Pool.Exec(ctx, `
 		INSERT INTO activities (tenant_id, kind, subject, lead_id, company_id, user_id)

@@ -142,7 +142,14 @@ func (s *Server) page(w http.ResponseWriter, r *http.Request, title, activeNav s
 		tok = s.CSRF.Token(id.UserID)
 	}
 	flash.ClearCookie(w)
-	return webapp.Page{Title: title, ActiveNav: activeNav, CSRFToken: tok, Flash: flash.Pop(r)}
+	p := webapp.Page{Title: title, ActiveNav: activeNav, CSRFToken: tok, Flash: flash.Pop(r)}
+	if id != nil && id.TenantID != "" {
+		var brand string
+		if err := s.PG.QueryRow(r.Context(), `SELECT COALESCE(whitelabel->>'brand','') FROM tenants WHERE id=$1`, id.TenantID).Scan(&brand); err == nil && brand != "" {
+			p.BrandName = brand
+		}
+	}
+	return p
 }
 
 func (s *Server) renderError(w http.ResponseWriter, r *http.Request, he *webapp.HTTPError) {

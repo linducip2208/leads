@@ -2,13 +2,17 @@ package crawler
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 
 	"leadforge/internal/platform/config"
+	"leadforge/internal/redisx"
 )
 
 // Manager enforces global crawl concurrency across searches, per-domain
@@ -20,6 +24,10 @@ type Manager struct {
 	Browser *BrowserPool
 
 	global chan struct{}
+
+	// dist is the cross-worker semaphore (nil = single process mode).
+	dist   *redisx.Semaphore
+	distOn bool
 
 	coolMu    sync.Mutex
 	cooldowns map[string]time.Time
@@ -50,6 +58,13 @@ func NewManager(cfg *config.Config, pool *pgxpool.Pool) *Manager {
 	if m.globalCap() <= 0 {
 		m.global = make(chan struct{}, 40)
 	}
+	// cross-worker global cap via Redis (self-healing TTL permits).
+	// Falls back to the local channel if Redis is unreachable.
+	if cfg.RedisAddr != "" && cfg.CrawlerGlobalWorkers > 0 {
+		rdb := redis.NewClient(&redis.Options{Addr: cfg.RedisAddr})
+		m.dist = redisx.NewSemaphore(rdb, "leadforge:crawl:permits", cfg.CrawlerGlobalWorkers, 60*time.Second)
+		m.distOn = true
+	}
 	m.Browser = NewBrowserPool(BrowserOptions{
 		Enabled: cfg.BrowserEnabled, Workers: cfg.BrowserWorkers,
 		Timeout: cfg.BrowserTimeout, MaxPages: cfg.BrowserMaxPages,
@@ -58,6 +73,27 @@ func NewManager(cfg *config.Config, pool *pgxpool.Pool) *Manager {
 }
 
 func (m *Manager) globalCap() int { return cap(m.global) }
+
+// acquire takes a global slot: Redis semaphore across workers when
+// available, local channel otherwise (fail-open keeps crawls flowing).
+func (m *Manager) acquire(ctx context.Context) (release func(), ok bool) {
+	if m.distOn && m.dist != nil {
+		var b [8]byte
+		_, _ = rand.Read(b[:])
+		tok := hex.EncodeToString(b[:])
+		slot := m.dist.Acquire(ctx, tok)
+		if slot >= 0 {
+			return func() { m.dist.Release(context.Background(), slot, tok) }, true
+		}
+		// redis denied/unreachable: fall through to local limiter
+	}
+	select {
+	case <-ctx.Done():
+		return nil, false
+	case m.global <- struct{}{}:
+		return func() { <-m.global }, true
+	}
+}
 
 // Metrics is a point-in-time snapshot for admin display.
 type Metrics struct {
@@ -91,12 +127,11 @@ func (m *Manager) Snapshot() Metrics {
 // skipped fast. Low-quality JS shells trigger the browser fallback.
 func (m *Manager) Crawl(ctx context.Context, startURL string, cfg SiteConfig) *SiteResult {
 	t0 := time.Now()
-	select {
-	case <-ctx.Done():
-		return &SiteResult{Data: &Extracted{Socials: map[string]string{}}, Errors: []string{ctx.Err().Error()}}
-	case m.global <- struct{}{}:
+	release, ok := m.acquire(ctx)
+	if !ok {
+		return &SiteResult{Data: &Extracted{Socials: map[string]string{}}, Errors: []string{"crawl slots exhausted"}}
 	}
-	defer func() { <-m.global }()
+	defer release()
 
 	u, err := m.Guard.ValidateURL(startURL)
 	if err != nil {

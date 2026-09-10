@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"leadforge/internal/audit"
 	"leadforge/internal/flash"
 	"leadforge/internal/role"
 	"leadforge/internal/search"
@@ -164,6 +165,7 @@ func (s *Server) handleFinderSearch(w http.ResponseWriter, r *http.Request) {
 		fail("Could not queue the search job. Is Redis running?")
 		return
 	}
+	audit.Log(r.Context(), s.PG, id.TenantID, id.UserID, "search.create", "search", searchID, audit.IP(r))
 	http.Redirect(w, r, "/searches/"+searchID, http.StatusSeeOther)
 }
 

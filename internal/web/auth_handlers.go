@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"leadforge/internal/audit"
 	"leadforge/internal/auth"
 	"leadforge/internal/flash"
 	"leadforge/internal/httpx"
@@ -59,6 +60,7 @@ func (s *Server) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 		s.renderHTTPError(w, r, &webapp.HTTPError{Status: 500, Title: "Something went wrong", Message: "We couldn't start your session. Please try again."})
 		return
 	}
+	audit.Log(r.Context(), s.PG, u.TenantID, u.ID, "auth.login", "user", u.ID, audit.IP(r))
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
@@ -97,11 +99,15 @@ func (s *Server) handleRegisterSubmit(w http.ResponseWriter, r *http.Request) {
 		s.renderHTTPError(w, r, &webapp.HTTPError{Status: 500, Title: "Something went wrong", Message: "We couldn't start your session. Please try again."})
 		return
 	}
+	audit.Log(r.Context(), s.PG, u.TenantID, u.ID, "auth.register", "user", u.ID, audit.IP(r))
 	flash.Set(w, flash.Success, "Welcome to LeadForge! Your workspace is ready.")
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	if d, _ := s.Session.Get(r.Context(), r); d != nil {
+		audit.Log(r.Context(), s.PG, d.TenantID, d.UserID, "auth.logout", "user", d.UserID, audit.IP(r))
+	}
 	s.Session.Destroy(w, r)
 	http.Redirect(w, r, "/login", http.StatusSeeOther)
 }

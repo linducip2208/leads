@@ -33,6 +33,11 @@ func (s *Server) settingsRoutes() {
 	s.Router.HandleFunc("POST", "/settings/integrations/{slug}/toggle", s.requirePerm(role.IntegrationMange, s.handleIntegrationToggle))
 	s.Router.HandleFunc("POST", "/settings/integrations/google_places/key", s.requirePerm(role.IntegrationMange, s.handleGoogleKeySave))
 	s.Router.HandleFunc("POST", "/settings/integrations/google_places/clear", s.requirePerm(role.IntegrationMange, s.handleGoogleKeyClear))
+	s.Router.HandleFunc("GET", "/settings/billing", s.requirePerm(role.BillingManage, s.handleBilling))
+	s.Router.HandleFunc("GET", "/settings/white-label", s.requirePerm(role.TenantManage, func(w http.ResponseWriter, r *http.Request) {
+		s.handleBrand(w, r)
+	}))
+	s.Router.HandleFunc("POST", "/settings/white-label", s.requirePerm(role.TenantManage, s.handleBrandSave))
 }
 
 func (s *Server) handleWorkspace(w http.ResponseWriter, r *http.Request, errMsg ...string) {
@@ -180,4 +185,63 @@ func (s *Server) handleEmailAccountDelete(w http.ResponseWriter, r *http.Request
 	id := webappIdentity(r)
 	_, _ = s.PG.Exec(r.Context(), `DELETE FROM email_accounts WHERE id=$1 AND tenant_id=$2`, r.PathValue("id"), id.TenantID)
 	http.Redirect(w, r, "/settings/email-accounts", http.StatusSeeOther)
+}
+
+func (s *Server) handleBilling(w http.ResponseWriter, r *http.Request) {
+	id := webappIdentity(r)
+	d := &settings.BillingData{Plan: "—"}
+	var limits []byte
+	_ = s.PG.QueryRow(r.Context(), `
+		SELECT COALESCE(p.name,'Free'), COALESCE(p.price_monthly::text,'0') || ' ' || COALESCE(p.currency,'USD'), p.limits
+		FROM tenants t LEFT JOIN subscriptions s ON s.tenant_id=t.id LEFT JOIN plans p ON p.id=s.plan_id
+		WHERE t.id=$1`, id.TenantID).Scan(&d.Plan, &d.Price, &limits)
+	d.Limits = shortLimitsStr(string(limits))
+	rows, _ := s.PG.Query(r.Context(), `
+		SELECT kind, SUM(quantity)::int FROM usage_events
+		WHERE tenant_id=$1 AND created_at > date_trunc('month', now()) GROUP BY kind ORDER BY 2 DESC`, id.TenantID)
+	if rows != nil {
+		defer rows.Close()
+		for rows.Next() {
+			var u settings.UsageRow
+			if err := rows.Scan(&u.Kind, &u.Count); err == nil {
+				d.Usage = append(d.Usage, u)
+			}
+		}
+	}
+	_ = s.PG.QueryRow(r.Context(), `SELECT COALESCE(SUM(amount),0) FROM credit_transactions WHERE tenant_id=$1`, id.TenantID).Scan(&d.Credits)
+	p := s.page(w, r, "Billing", "/settings/billing")
+	layouts.AppShell(s.Ren, id, p, settings.Billing(p, d)).Render(r.Context(), w)
+}
+
+func (s *Server) handleBrand(w http.ResponseWriter, r *http.Request, errMsg ...string) {
+	id := webappIdentity(r)
+	d := &settings.BrandData{}
+	if len(errMsg) > 0 {
+		d.Error = errMsg[0]
+	}
+	_ = s.PG.QueryRow(r.Context(), `SELECT COALESCE(whitelabel->>'brand','') FROM tenants WHERE id=$1`, id.TenantID).Scan(&d.Brand)
+	p := s.page(w, r, "White Label", "/settings/white-label")
+	layouts.AppShell(s.Ren, id, p, settings.Brand(p, d)).Render(r.Context(), w)
+}
+
+func (s *Server) handleBrandSave(w http.ResponseWriter, r *http.Request) {
+	id := webappIdentity(r)
+	brand := strings.TrimSpace(r.FormValue("brand"))
+	if len(brand) > 40 {
+		s.handleBrand(w, r, "Brand name is too long (max 40).")
+		return
+	}
+	_, _ = s.PG.Exec(r.Context(), `UPDATE tenants SET whitelabel = jsonb_build_object('brand', $2), updated_at=now() WHERE id=$1`, id.TenantID, brand)
+	webapp.RedirectFlash(w, r, "/settings/white-label", flash.Success, "Brand updated.")
+}
+
+func shortLimitsStr(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == "null" {
+		return "No explicit limits."
+	}
+	if len(raw) > 200 {
+		return raw[:200] + "…"
+	}
+	return raw
 }

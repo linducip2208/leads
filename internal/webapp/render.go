@@ -20,6 +20,7 @@ type Page struct {
 	CSRFToken   string
 	IsSuper     bool
 	SearchQuery string
+	BrandName   string // tenant white-label override (empty = default)
 }
 
 // ErrorPageData renders friendly errors (never raw db errors).

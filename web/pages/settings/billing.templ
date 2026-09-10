@@ -1,0 +1,63 @@
+package settings
+
+import "leadforge/web/components"
+
+// BillingData powers the billing page.
+type BillingData struct {
+	Plan    string
+	Price   string
+	Limits  string
+	Usage   []UsageRow
+	Credits int
+}
+
+// UsageRow is one metered kind.
+type UsageRow struct {
+	Kind  string
+	Count int
+}
+
+// BrandData powers white-label settings.
+type BrandData struct {
+	Brand string
+	Error string
+}
+
+templ Billing(p PageMeta, d *BillingData) {
+	@components.PageHeader("Billing", "Plan, limits and metered usage. Plan changes are handled by your administrator.")
+	<div class="grid gap-4 lg:grid-cols-2">
+		<div class="card bg-white border border-line rounded-xl shadow-xs p-4 h-fit">
+			@components.SectionTitle("Current plan")
+			<div class="text-[18px] font-semibold">{ d.Plan } <span class="text-[13px] font-normal text-ink-3">{ d.Price }</span></div>
+			<div class="mt-2 text-[12.5px] text-ink-3 break-words">{ d.Limits }</div>
+			@components.SectionTitle("Credits")
+			<div class="text-[22px] font-semibold tabular-nums">{ itoa(d.Credits) }</div>
+		</div>
+		<div class="card bg-white border border-line rounded-xl shadow-xs p-4 h-fit">
+			@components.SectionTitle("Usage this month")
+			for _, u := range d.Usage {
+				<div class="flex items-center justify-between py-1.5 border-b border-[#f0f1f6] last:border-0 text-[13px]">
+					<span class="text-ink-2 capitalize">{ u.Kind }</span>
+					<span class="font-semibold tabular-nums">{ itoa(u.Count) }</span>
+				</div>
+			}
+			if len(d.Usage) == 0 {
+				<p class="text-[13px] text-ink-3">No usage recorded yet.</p>
+			}
+		</div>
+	</div>
+}
+
+templ Brand(p PageMeta, d *BrandData) {
+	@components.PageHeader("White Label", "Your brand in the sidebar and page titles.")
+	<div class="card bg-white border border-line rounded-xl shadow-xs p-5 max-w-xl">
+		if d.Error != "" {
+			<div class="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[12.5px] text-red-800">{ d.Error }</div>
+		}
+		<form method="post" action="/settings/white-label" class="space-y-3">
+			<input type="hidden" name="_token" value={ p.CSRFToken }/>
+			@components.Input("brand", "Brand name (blank = default)", d.Brand, "", "text", false)
+			<button class="h-9 px-4 rounded-lg bg-brand-600 text-white text-[13px] font-medium hover:bg-brand-700">Save</button>
+		</form>
+	</div>
+}

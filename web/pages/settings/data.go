@@ -30,3 +30,47 @@ type EmailAccountsData struct {
 	Accounts []EmailAccountRow
 	Error    string
 }
+
+// APIKeyRow is one API key (hash never leaves the server).
+type APIKeyRow struct {
+	ID       string
+	Name     string
+	Prefix   string
+	Scopes   string
+	LastUsed string
+	Expires  string
+	Created  string
+}
+
+// APIKeysData powers the API keys page.
+type APIKeysData struct {
+	Keys    []APIKeyRow
+	NewKey  string
+	NewName string
+	Error   string
+}
+
+// WebhookRow is one outbound webhook.
+type WebhookRow struct {
+	ID      string
+	URL     string
+	Events  string
+	Active  bool
+	Created string
+}
+
+// DeliveryRow is one delivery attempt.
+type DeliveryRow struct {
+	Event  string
+	Status string
+	Code   string
+	When   string
+	Error  string
+}
+
+// WebhooksData powers the webhooks page.
+type WebhooksData struct {
+	Hooks      []WebhookRow
+	Deliveries []DeliveryRow
+	Error      string
+}
