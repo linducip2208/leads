@@ -30,6 +30,29 @@ type Config struct {
 	CrawlerMaxBodyBytes      int64
 	CrawlerAllowPrivate      bool
 
+	SearchProcessWorkers int
+	CrawlerSiteWorkers   int
+	CrawlerGlobalWorkers int
+	SourceConcurrency    int
+	EnrichmentWorkers    int
+
+	BrowserEnabled  bool
+	BrowserWorkers  int
+	BrowserTimeout  time.Duration
+	BrowserMaxPages int
+
+	EnrichFreshDays int
+	VerifyFreshDays int
+	CrawlFreshDays  int
+
+	WatchdogStaleMinutes int
+
+	DBMaxConns        int32
+	DBMinConns        int32
+	DBMaxConnLifetime time.Duration
+
+	MaxConcurrentSearches int
+
 	AIEnabled bool
 
 	SMTPHost     string
@@ -73,6 +96,29 @@ func Load() (*Config, error) {
 	// dev/test override only: allow crawling private/loopback IPs (E2E fixtures).
 	// Never enable in production.
 	c.CrawlerAllowPrivate = envBool("CRAWLER_ALLOW_PRIVATE", false)
+
+	c.SearchProcessWorkers = envInt("SEARCH_PROCESS_WORKERS", 8)
+	c.CrawlerSiteWorkers = envInt("CRAWLER_SITE_WORKERS", 4)
+	c.CrawlerGlobalWorkers = envInt("CRAWLER_GLOBAL_WORKERS", 40)
+	c.SourceConcurrency = envInt("SOURCE_CONCURRENCY", 8)
+	c.EnrichmentWorkers = envInt("ENRICHMENT_WORKERS", 10)
+
+	c.BrowserEnabled = envBool("BROWSER_ENABLED", true)
+	c.BrowserWorkers = envInt("BROWSER_WORKERS", 2)
+	c.BrowserTimeout = time.Duration(envInt("BROWSER_TIMEOUT_S", 20)) * time.Second
+	c.BrowserMaxPages = envInt("BROWSER_MAX_PAGES", 3)
+
+	c.EnrichFreshDays = envInt("ENRICHMENT_FRESH_DAYS", 30)
+	c.VerifyFreshDays = envInt("EMAIL_VERIFY_FRESH_DAYS", 30)
+	c.CrawlFreshDays = envInt("CRAWL_FRESH_DAYS", 14)
+
+	c.WatchdogStaleMinutes = envInt("WATCHDOG_STALE_MINUTES", 15)
+
+	c.DBMaxConns = int32(envInt("DB_MAX_CONNS", 20))
+	c.DBMinConns = int32(envInt("DB_MIN_CONNS", 2))
+	c.DBMaxConnLifetime = time.Duration(envInt("DB_MAX_CONN_LIFETIME_MIN", 60)) * time.Minute
+
+	c.MaxConcurrentSearches = envInt("TENANT_MAX_CONCURRENT_SEARCHES", 5)
 
 	c.AIEnabled = envBool("AI_ENABLED", false)
 

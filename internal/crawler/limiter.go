@@ -70,13 +70,23 @@ func (l *DomainLimiter) Acquire(ctx context.Context, host string) (release func(
 	}, nil
 }
 
-// DoWithRetry runs fn with exponential backoff on transient failures.
-func DoWithRetry(ctx context.Context, attempts int, baseDelay time.Duration, fn func() error) error {
-	if attempts <= 0 {
-		attempts = 3
-	}
-	if baseDelay <= 0 {
-		baseDelay = 500 * time.Millisecond
+// retryDelays is the backoff schedule: 1s, 3s, 7s (+ jitter).
+var retryDelays = []time.Duration{time.Second, 3 * time.Second, 7 * time.Second}
+
+// retryableStatus reports retryable HTTP statuses: 429 and 500/502/503/504.
+// Client errors (400/401/403/404/410) are never retried.
+func retryableStatus(code int) bool {
+	return code == 429 || code == 500 || code == 502 || code == 503 || code == 504
+}
+
+func randInt63n(n int64) int64 {
+	return rand.Int63n(n)
+}
+
+// DoWithRetry runs fn with 1s/3s/7s backoff (+jitter) on transient failures.
+func DoWithRetry(ctx context.Context, attempts int, _ time.Duration, fn func() error) error {
+	if attempts <= 0 || attempts > len(retryDelays) {
+		attempts = len(retryDelays)
 	}
 	var err error
 	for i := 0; i < attempts; i++ {
@@ -89,8 +99,7 @@ func DoWithRetry(ctx context.Context, attempts int, baseDelay time.Duration, fn 
 		if !retryable(err) {
 			return err
 		}
-		backoff := baseDelay << i
-		backoff += time.Duration(rand.Int63n(int64(baseDelay)))
+		backoff := retryDelays[i] + time.Duration(rand.Int63n(int64(400*time.Millisecond)))
 		t := time.NewTimer(backoff)
 		select {
 		case <-ctx.Done():
@@ -110,12 +119,8 @@ func (e *statusError) Error() string { return fmt.Sprintf("http status %d", e.co
 func HTTPStatusError(code int) error { return &statusError{code: code} }
 
 func retryable(err error) bool {
-	var se *statusError
 	if e, ok := err.(*statusError); ok {
-		_ = e
-		_ = se
-		code := e.code
-		return code == 429 || code >= 500
+		return retryableStatus(e.code)
 	}
 	// network/timeout errors are retryable; policy denials are not
 	msg := err.Error()

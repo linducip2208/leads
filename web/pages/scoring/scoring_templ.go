@@ -254,7 +254,7 @@ func Page(p PageMeta, d *PageData) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = components.Select("operator", "Operator", []string{"exists|Exists", "equals|Equals", "contains|Contains", "in|In list"}, "exists").Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = components.Select("operator", "Operator", []string{"exists|Exists", "not_exists|Not exists", "equals|Equals", "not_equals|Not equals", "contains|Contains", "not_contains|Not contains", "in|In list", "not_in|Not in list", "greater_than|Greater than", "less_than|Less than"}, "exists").Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

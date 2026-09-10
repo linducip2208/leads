@@ -42,6 +42,11 @@ func main() {
 		cont.Log.Error("register outreach tick", "err", err)
 		os.Exit(1)
 	}
+	staleTask := asynq.NewTask(queue.TypeRefreshStale, nil)
+	if _, err := sched.Register("@every 24h", staleTask, asynq.Queue(queue.QMaintenance)); err != nil {
+		cont.Log.Error("register stale refresh", "err", err)
+		os.Exit(1)
+	}
 
 	go func() {
 		t := time.NewTicker(10 * time.Second)

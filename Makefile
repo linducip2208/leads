@@ -27,10 +27,13 @@ scheduler: ## Run periodic scheduler (needs Redis)
 
 build: ## Build all binaries into bin/
 	@mkdir -p bin
-	$(GO) build -o bin/ ./cmd/server ./cmd/worker ./cmd/scheduler ./cmd/migrate
+	$(GO) build -o bin/ ./cmd/server ./cmd/worker ./cmd/scheduler ./cmd/migrate ./cmd/benchmark-search
 
 test: ## Run all tests
 	$(GO) test ./...
+
+bench: ## Scale simulation (COUNT=1000 MODE=mock)
+	$(GO) run ./cmd/benchmark-search --count=$(or $(COUNT),1000) --mode=$(or $(MODE),mock)
 
 vet: ## go vet + gofmt check
 	$(GO) vet ./...

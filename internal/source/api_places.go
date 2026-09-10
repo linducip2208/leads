@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -20,6 +21,14 @@ func NewCustomAPISource() *CustomAPISource { return &CustomAPISource{} }
 
 func (c *CustomAPISource) Slug() string { return "custom_api" }
 func (c *CustomAPISource) Name() string { return "Custom API" }
+
+func (c *CustomAPISource) Info() SourceInfo {
+	return SourceInfo{Slug: c.Slug(), Name: c.Name(),
+		Description:        "Tenant-configured JSON endpoint.",
+		Priority:           70,
+		Confidence:         70,
+		RequiresCredential: false}
+}
 
 func (c *CustomAPISource) Search(ctx context.Context, query SearchQuery) (<-chan RawLead, error) {
 	if strings.TrimSpace(query.APIURL) == "" {
@@ -111,9 +120,9 @@ func parseCustomAPI(body []byte) []map[string]string {
 	return out
 }
 
-// GooglePlacesSource is an adapter for the official Google Places API. It
-// stays dormant (returns a clear error) until an API key is configured, so the
-// application always boots without one.
+// GooglePlacesSource queries the official Places API (Text Search, then
+// Details for website/phone). Disabled without an API key; the tenant key
+// (Settings → Integrations) wins over the global env key.
 type GooglePlacesSource struct {
 	apiKey string
 }
@@ -125,11 +134,156 @@ func NewGooglePlacesSource(apiKey string) *GooglePlacesSource {
 func (g *GooglePlacesSource) Slug() string { return "google_places" }
 func (g *GooglePlacesSource) Name() string { return "Google Places" }
 
-func (g *GooglePlacesSource) Search(ctx context.Context, query SearchQuery) (<-chan RawLead, error) {
-	if g.apiKey == "" {
-		return nil, fmt.Errorf("google places source: no API key configured (set GOOGLE_PLACES_API_KEY to enable)")
+func (g *GooglePlacesSource) Info() SourceInfo {
+	return SourceInfo{Slug: g.Slug(), Name: g.Name(),
+		Description:        "Official Google Places data (requires API key).",
+		Priority:           100,
+		Confidence:         90,
+		RequiresCredential: true}
+}
+
+func (g *GooglePlacesSource) keyFor(query SearchQuery) string {
+	if query.GoogleKey != "" {
+		return query.GoogleKey
 	}
-	// Full Places Text Search implementation is intentionally deferred until a
-	// key is provided; the adapter contract is ready.
-	return nil, fmt.Errorf("google places source: adapter scaffolded, implementation pending API key")
+	return g.apiKey
+}
+
+func (g *GooglePlacesSource) Search(ctx context.Context, query SearchQuery) (<-chan RawLead, error) {
+	key := g.keyFor(query)
+	if key == "" {
+		return nil, fmt.Errorf("google places source: not configured (add an API key in Settings → Integrations)")
+	}
+	out := make(chan RawLead, 64)
+	go func() {
+		defer close(out)
+		terms := query.Keywords()
+		if loc := query.Location(); loc != "" {
+			terms += " " + loc
+		}
+		if strings.TrimSpace(terms) == "" {
+			return
+		}
+		places, err := placesTextSearch(ctx, key, terms)
+		if err != nil {
+			return
+		}
+		sent := 0
+		for _, pl := range places {
+			if sent >= query.Limit && query.Limit > 0 {
+				return
+			}
+			// details for website + phone (bounded: only while under limit)
+			if det, err := placeDetails(ctx, key, pl.PlaceID); err == nil {
+				if det.Website != "" {
+					pl.Website = det.Website
+				}
+				if det.Phone != "" {
+					pl.Phone = det.Phone
+				}
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case out <- RawLead{
+				SourceSlug: g.Slug(), SourceConf: 90,
+				ExternalID: pl.PlaceID, Name: pl.Name, Website: pl.Website,
+				Phone: pl.Phone, Address: pl.Address,
+				Country: query.Country, Province: query.Province, City: query.City,
+				Industry: query.Industry, SourceURL: "https://www.google.com/maps/place/?q=place_id:" + pl.PlaceID,
+				DiscoveredAt: time.Now(),
+				Payload:      map[string]string{"rating": pl.Rating},
+			}:
+				sent++
+			}
+		}
+	}()
+	return out, nil
+}
+
+type gplace struct {
+	PlaceID string
+	Name    string
+	Address string
+	Website string
+	Phone   string
+	Rating  string
+}
+
+func placesTextSearch(ctx context.Context, key, terms string) ([]gplace, error) {
+	params := url.Values{"query": {terms}, "key": {key}}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		"https://maps.googleapis.com/maps/api/place/textsearch/json?"+params.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := discoveryHTTP.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	if err != nil {
+		return nil, err
+	}
+	var parsed struct {
+		Status  string `json:"status"`
+		Message string `json:"error_message"`
+		Results []struct {
+			PlaceID          string  `json:"place_id"`
+			Name             string  `json:"name"`
+			FormattedAddress string  `json:"formatted_address"`
+			Rating           float64 `json:"rating"`
+		} `json:"results"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return nil, err
+	}
+	if parsed.Status != "OK" && parsed.Status != "ZERO_RESULTS" {
+		return nil, fmt.Errorf("google places: %s %s", parsed.Status, parsed.Message)
+	}
+	var out []gplace
+	for _, r := range parsed.Results {
+		out = append(out, gplace{PlaceID: r.PlaceID, Name: r.Name, Address: r.FormattedAddress,
+			Rating: fmt.Sprintf("%.1f", r.Rating)})
+	}
+	return out, nil
+}
+
+func placeDetails(ctx context.Context, key, placeID string) (gplace, error) {
+	var det gplace
+	params := url.Values{
+		"place_id": {placeID}, "key": {key},
+		"fields": {"website,formatted_phone_number"},
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		"https://maps.googleapis.com/maps/api/place/details/json?"+params.Encode(), nil)
+	if err != nil {
+		return det, err
+	}
+	resp, err := discoveryHTTP.Do(req)
+	if err != nil {
+		return det, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return det, err
+	}
+	var parsed struct {
+		Status string `json:"status"`
+		Result struct {
+			Website string `json:"website"`
+			Phone   string `json:"formatted_phone_number"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return det, err
+	}
+	if parsed.Status != "OK" {
+		return det, fmt.Errorf("details: %s", parsed.Status)
+	}
+	det.Website = parsed.Result.Website
+	det.Phone = parsed.Result.Phone
+	return det, nil
 }

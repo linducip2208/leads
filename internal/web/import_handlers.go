@@ -70,6 +70,11 @@ func (s *Server) handleImportUpload(w http.ResponseWriter, r *http.Request) {
 		s.handleImportPage(w, r, "Could not read the file.")
 		return
 	}
+	// MIME sniff: never trust the extension alone; temp data is never executed.
+	if mime := http.DetectContentType(data); !strings.HasPrefix(mime, "text/") {
+		s.handleImportPage(w, r, "File does not look like CSV (detected "+mime+").")
+		return
+	}
 	rows, err := source.ParseCSV(data)
 	if err != nil || len(rows) == 0 {
 		s.handleImportPage(w, r, "No data rows found in the CSV.")
@@ -101,7 +106,7 @@ func (s *Server) handleImportUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	eg, ctx := errgroup.WithContext(r.Context())
-	eg.SetLimit(4)
+	eg.SetLimit(s.Cfg.SearchWorkers)
 	for cand := range ch {
 		c := cand
 		eg.Go(func() error {

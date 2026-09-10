@@ -1,0 +1,91 @@
+package settings
+
+import "leadforge/web/components"
+
+// SourceRow is one connector with live status.
+type SourceRow struct {
+	Slug        string
+	Name        string
+	Description string
+	Priority    int
+	Confidence  int
+	NeedsKey    bool
+	Configured  bool
+	Enabled     bool
+	Status      string // Configured | Not Configured | Disabled | Error
+	LastError   string
+}
+
+// IntegrationsData powers source connector settings.
+type IntegrationsData struct {
+	Sources    []SourceRow
+	HasGoogle  bool
+	Error      string
+	GoogleHint string
+}
+
+templ Integrations(p PageMeta, d *IntegrationsData) {
+	@components.PageHeader("Integrations", "Discovery connectors — enable, disable, and configure credentials.")
+	if d.Error != "" {
+		<div class="mb-4 rounded-lg border border-red-200 bg-red-50 px-3.5 py-2.5 text-[13px] text-red-800">{ d.Error }</div>
+	}
+	<div class="space-y-3">
+		for _, s := range d.Sources {
+			<div class="card bg-white border border-line rounded-xl shadow-xs p-4">
+				<div class="flex flex-wrap items-center gap-2.5">
+					<span class="text-[14px] font-semibold">{ s.Name }</span>
+					if s.Status == "Configured" {
+						@components.Badge("configured", "green")
+					} else if s.Status == "Disabled" {
+						@components.Badge("disabled", "gray")
+					} else if s.Status == "Error" {
+						@components.Badge("error", "red")
+					} else {
+						@components.Badge("not configured", "amber")
+					}
+					<span class="text-[11.5px] text-ink-3">priority { itoa(s.Priority) } · trust { itoa(s.Confidence) }</span>
+					<div class="ml-auto flex items-center gap-2">
+						<form method="post" action={ templ.URL("/settings/integrations/" + s.Slug + "/toggle") }>
+							<input type="hidden" name="_token" value={ p.CSRFToken }/>
+							if s.Enabled {
+								<button class="h-7 px-2.5 rounded-md border border-line text-[12px] hover:bg-[#f6f7fb]">Disable</button>
+							} else {
+								<button class="h-7 px-2.5 rounded-md border border-brand-300 text-brand-700 text-[12px] hover:bg-brand-50">Enable</button>
+							}
+						</form>
+					</div>
+				</div>
+				<p class="mt-1 text-[12.5px] text-ink-3">{ s.Description }</p>
+				if s.LastError != "" {
+					<p class="mt-1 text-[12px] text-red-700">Last error: { s.LastError }</p>
+				}
+				if s.NeedsKey {
+					<div class="mt-3 flex flex-wrap items-end gap-2.5">
+						<form method="post" action="/settings/integrations/google_places/key" class="flex flex-wrap items-end gap-2.5">
+							<input type="hidden" name="_token" value={ p.CSRFToken }/>
+							<div class="space-y-1.5">
+								<label class="block text-[12px] font-medium text-ink-2">Google Places API key (encrypted at rest)</label>
+								<input type="password" name="api_key" placeholder={ keyPlaceholder(s.Configured) } autocomplete="off"
+									class="input h-8 w-72 rounded-lg border border-line bg-white px-2.5 text-[13px] focus:border-brand-400 focus:outline-none"/>
+							</div>
+							<button class="h-8 px-3 rounded-lg bg-ink text-white text-[12.5px] font-medium">Save key</button>
+						</form>
+						if s.Configured {
+							<form method="post" action="/settings/integrations/google_places/clear">
+								<input type="hidden" name="_token" value={ p.CSRFToken }/>
+								<button class="h-8 px-3 rounded-lg border border-line text-[12.5px] text-red-700 hover:bg-red-50">Remove</button>
+							</form>
+						}
+					</div>
+				}
+			</div>
+		}
+	</div>
+}
+
+func keyPlaceholder(configured bool) string {
+	if configured {
+		return "•••••••• (saved — enter a new key to replace)"
+	}
+	return "AIza…"
+}

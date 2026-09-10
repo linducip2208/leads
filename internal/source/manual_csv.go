@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/url"
 	"strings"
+	"time"
 )
 
 // ManualSource turns pasted seed URLs into candidates. Always available.
@@ -16,6 +17,12 @@ func NewManualSource() *ManualSource { return &ManualSource{} }
 
 func (m *ManualSource) Slug() string { return "manual" }
 func (m *ManualSource) Name() string { return "Manual URLs" }
+
+func (m *ManualSource) Info() SourceInfo {
+	return SourceInfo{Slug: m.Slug(), Name: m.Name(),
+		Description: "Crawl pasted company website URLs directly.",
+		Priority:    100, Confidence: 95}
+}
 
 func (m *ManualSource) Search(ctx context.Context, query SearchQuery) (<-chan RawLead, error) {
 	out := make(chan RawLead, 64)
@@ -44,14 +51,15 @@ func (m *ManualSource) Search(ctx context.Context, query SearchQuery) (<-chan Ra
 			case <-ctx.Done():
 				return
 			case out <- RawLead{
-				SourceSlug: m.Slug(),
-				Website:    u,
-				Domain:     strings.ToLower(parsed.Hostname()),
-				SourceURL:  u,
-				Country:    query.Country,
-				Province:   query.Province,
-				City:       query.City,
-				Industry:   query.Industry,
+				SourceSlug: m.Slug(), SourceConf: 95,
+				DiscoveredAt: time.Now(),
+				Website:      u,
+				Domain:       strings.ToLower(parsed.Hostname()),
+				SourceURL:    u,
+				Country:      query.Country,
+				Province:     query.Province,
+				City:         query.City,
+				Industry:     query.Industry,
 			}:
 				n++
 			}
@@ -70,6 +78,12 @@ func NewCSVSource() *CSVSource { return &CSVSource{} }
 func (c *CSVSource) Slug() string { return "csv" }
 func (c *CSVSource) Name() string { return "CSV Import" }
 
+func (c *CSVSource) Info() SourceInfo {
+	return SourceInfo{Slug: c.Slug(), Name: c.Name(),
+		Description: "Rows from an uploaded CSV file.",
+		Priority:    90, Confidence: 85}
+}
+
 func (c *CSVSource) Search(ctx context.Context, query SearchQuery) (<-chan RawLead, error) {
 	if len(query.CSVData) == 0 {
 		return nil, fmt.Errorf("csv source: no file data")
@@ -87,17 +101,18 @@ func (c *CSVSource) Search(ctx context.Context, query SearchQuery) (<-chan RawLe
 				return
 			}
 			lead := RawLead{
-				SourceSlug: c.Slug(),
-				Name:       firstNonEmpty(r["name"], r["company"], r["company_name"], r["business_name"]),
-				Website:    firstNonEmpty(r["website"], r["domain"], r["url"], r["site"]),
-				Email:      r["email"],
-				Phone:      firstNonEmpty(r["phone"], r["mobile"], r["tel"], r["telephone"]),
-				Address:    r["address"],
-				City:       firstNonEmpty(r["city"], query.City),
-				Province:   firstNonEmpty(r["province"], r["state"], query.Province),
-				Country:    firstNonEmpty(r["country"], query.Country),
-				Industry:   firstNonEmpty(r["industry"], r["category"], query.Industry),
-				SourceURL:  "csv:" + query.CSVName,
+				SourceSlug: c.Slug(), SourceConf: 85,
+				DiscoveredAt: time.Now(),
+				Name:         firstNonEmpty(r["name"], r["company"], r["company_name"], r["business_name"]),
+				Website:      firstNonEmpty(r["website"], r["domain"], r["url"], r["site"]),
+				Email:        r["email"],
+				Phone:        firstNonEmpty(r["phone"], r["mobile"], r["tel"], r["telephone"]),
+				Address:      r["address"],
+				City:         firstNonEmpty(r["city"], query.City),
+				Province:     firstNonEmpty(r["province"], r["state"], query.Province),
+				Country:      firstNonEmpty(r["country"], query.Country),
+				Industry:     firstNonEmpty(r["industry"], r["category"], query.Industry),
+				SourceURL:    "csv:" + query.CSVName,
 			}
 			if lead.Website != "" && !strings.Contains(lead.Website, "://") {
 				lead.Website = "https://" + lead.Website

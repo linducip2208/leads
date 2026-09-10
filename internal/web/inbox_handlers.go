@@ -2,9 +2,16 @@ package web
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
+	"io"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 
 	"leadforge/internal/flash"
 	"leadforge/internal/mail"
@@ -150,7 +157,13 @@ func (s *Server) handleInboxRead(w http.ResponseWriter, r *http.Request) {
 // The recipient address is matched to a sending account to scope the tenant.
 // Replies flip campaign contacts to replied (stop-on-reply).
 func (s *Server) handleInbound(w http.ResponseWriter, r *http.Request) {
-	if want := s.inboundKey(); want != "" && r.URL.Query().Get("key") != want {
+	// auth: HMAC header (preferred) or legacy ?key= (backward compatible)
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
+	if err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if !s.validInboundAuth(r, body) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
@@ -160,7 +173,7 @@ func (s *Server) handleInbound(w http.ResponseWriter, r *http.Request) {
 		Subject string `json:"subject"`
 		Body    string `json:"body"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&in); err != nil {
+	if err := json.Unmarshal(body, &in); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
@@ -171,7 +184,7 @@ func (s *Server) handleInbound(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var tenantID, accountID string
-	err := s.PG.QueryRow(r.Context(), `SELECT tenant_id::text, id::text FROM email_accounts WHERE from_email=$1 LIMIT 1`, in.To).Scan(&tenantID, &accountID)
+	err = s.PG.QueryRow(r.Context(), `SELECT tenant_id::text, id::text FROM email_accounts WHERE from_email=$1 LIMIT 1`, in.To).Scan(&tenantID, &accountID)
 	if err != nil {
 		// unknown recipient: accept but ignore (avoid sender enumeration)
 		w.WriteHeader(http.StatusOK)
@@ -216,6 +229,52 @@ func (s *Server) handleInbound(w http.ResponseWriter, r *http.Request) {
 func (s *Server) inboundKey() string {
 	return s.Cfg.InboundKey
 }
+
+// validInboundAuth accepts (a) HMAC-SHA256 hex of the raw body in
+// X-Signature-256 with X-Timestamp (±5 min replay window), or (b) the legacy
+// ?key= shared secret. Empty configured key leaves (b) open by suffix match
+// of nothing — i.e. dev only; production must set INBOUND_WEBHOOK_KEY.
+func (s *Server) validInboundAuth(r *http.Request, body []byte) bool {
+	want := s.inboundKey()
+	if sig := r.Header.Get("X-Signature-256"); sig != "" && want != "" {
+		ts := r.Header.Get("X-Timestamp")
+		var skew int64 = -1
+		if ts != "" {
+			if t, err := strconv.ParseInt(ts, 10, 64); err == nil {
+				skew = nowUnix() - t
+				if skew < 0 {
+					skew = -skew
+				}
+			}
+		}
+		if skew >= 0 && skew <= 300 {
+			mac := hmacSHA256(want, ts+"."+string(body))
+			if subtleEqual(sig, mac) {
+				return true
+			}
+		}
+		return false
+	}
+	if want != "" && r.URL.Query().Get("key") != want {
+		return false
+	}
+	return true
+}
+
+func hmacSHA256(key, msg string) string {
+	m := hmac.New(sha256.New, []byte(key))
+	m.Write([]byte(msg))
+	return hex.EncodeToString(m.Sum(nil))
+}
+
+func subtleEqual(a, b string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
+}
+
+func nowUnix() int64 { return time.Now().Unix() }
 
 func shortErr(err error) string {
 	s := err.Error()

@@ -43,13 +43,31 @@ templ Page(p PageMeta, d *PageData) {
 		</div>
 
 		<div class="card bg-white border border-line rounded-xl shadow-xs p-5">
-			<h2 class="text-[14px] font-semibold text-ink">Sources & filters</h2>
+			<h2 class="text-[14px] font-semibold">Sources & filters</h2>
 			<p class="mt-0.5 text-[12.5px] text-ink-3">Discovery runs in the background — you can navigate away and watch progress.</p>
-			<div class="mt-3 flex flex-wrap gap-x-6 gap-y-2">
+			<div class="mt-3 grid gap-2.5 sm:grid-cols-2">
+				<label class="flex items-start gap-2.5 rounded-lg border border-brand-300 bg-brand-50/50 p-3 cursor-pointer">
+					<input type="checkbox" name="sources" value="auto" checked?={ d.Form.HasSource("auto") || len(d.Form.Sources) == 0 } class="mt-0.5 w-4 h-4 rounded border-line text-brand-600 accent-brand-600"/>
+					<span>
+						<span class="block text-[13px] font-medium">Auto Select <span class="ml-1 text-[10.5px] font-semibold uppercase tracking-wide text-brand-700">recommended</span></span>
+						<span class="block text-[12px] text-ink-3">Uses every active, configured connector.</span>
+					</span>
+				</label>
 				for _, s := range d.Sources {
-					<label class="inline-flex items-center gap-2 text-[13px] text-ink-2 cursor-pointer select-none">
-						<input type="checkbox" name="sources" value={ s.Value } checked?={ d.Form.HasSource(s.Value) } class="w-4 h-4 rounded border-line text-brand-600 accent-brand-600"/>
-						{ s.Label }
+					<label class="flex items-start gap-2.5 rounded-lg border border-line p-3 cursor-pointer hover:border-brand-300">
+						if s.Status == "needs_key" {
+							<input type="checkbox" disabled class="mt-0.5 w-4 h-4 rounded border-line accent-brand-600"/>
+						} else {
+							<input type="checkbox" name="sources" value={ s.Value } checked?={ d.Form.HasSource(s.Value) } class="mt-0.5 w-4 h-4 rounded border-line text-brand-600 accent-brand-600"/>
+						}
+						<span class="min-w-0">
+							<span class="block text-[13px] font-medium">{ s.Label }
+								if s.Status == "needs_key" {
+									<span class="ml-1 text-[11px] text-amber-700">· <a href="/settings/integrations" class="underline">Configure</a></span>
+								}
+							</span>
+							<span class="block text-[12px] text-ink-3">{ s.Description }</span>
+						</span>
 					</label>
 				}
 			</div>

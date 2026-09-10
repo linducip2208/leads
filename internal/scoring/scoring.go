@@ -64,28 +64,41 @@ func Evaluate(sig Signals, custom []Rule) (score int, breakdown []Item) {
 }
 
 func matchRule(sig Signals, r Rule) bool {
+	gotText := strings.TrimSpace(sig.Text[r.Signal])
+	wantText := strings.TrimSpace(r.Value)
 	switch r.Operator {
 	case "exists":
 		return sig.Bool[r.Signal]
+	case "not_exists":
+		return !sig.Bool[r.Signal]
 	case "equals":
-		return strings.EqualFold(strings.TrimSpace(sig.Text[r.Signal]), strings.TrimSpace(r.Value))
+		return strings.EqualFold(gotText, wantText)
+	case "not_equals":
+		return gotText != "" && !strings.EqualFold(gotText, wantText)
 	case "contains":
 		return strings.Contains(strings.ToLower(sig.Text[r.Signal]), strings.ToLower(r.Value))
-	case "in":
-		got := strings.ToLower(strings.TrimSpace(sig.Text[r.Signal]))
+	case "not_contains":
+		return !strings.Contains(strings.ToLower(sig.Text[r.Signal]), strings.ToLower(r.Value))
+	case "in", "not_in":
+		got := strings.ToLower(gotText)
+		hit := false
 		for _, v := range strings.Split(r.Value, ",") {
 			if strings.TrimSpace(strings.ToLower(v)) == got && got != "" {
-				return true
+				hit = true
+				break
 			}
 		}
-		return false
-	case "gte", "lte":
-		got, err1 := strconv.Atoi(strings.TrimSpace(sig.Text[r.Signal]))
-		want, err2 := strconv.Atoi(strings.TrimSpace(r.Value))
+		if r.Operator == "in" {
+			return hit
+		}
+		return !hit
+	case "gte", "greater_than", "lte", "less_than":
+		got, err1 := strconv.Atoi(gotText)
+		want, err2 := strconv.Atoi(wantText)
 		if err1 != nil || err2 != nil {
 			return false
 		}
-		if r.Operator == "gte" {
+		if r.Operator == "gte" || r.Operator == "greater_than" {
 			return got >= want
 		}
 		return got <= want

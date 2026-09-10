@@ -7,7 +7,10 @@ import (
 )
 
 templ List(p PageMeta, d *ListData) {
-	@components.PageHeader("Leads", "Prospects discovered, scored and ready for outreach.") { @components.LinkButton("/finder", "Find Leads") }
+	@components.PageHeader("Leads", "Prospects discovered, scored and ready for outreach.") {
+		@components.LinkButton("/leads/export?"+exportQuery(d.Filter), "Export CSV")
+		@components.LinkButton("/finder", "Find Leads")
+	}
 	<div class="card bg-white border border-line rounded-xl shadow-xs">
 		<div class="px-4 pt-3 flex items-center gap-1.5 flex-wrap border-b border-line pb-0">
 			for _, t := range d.Tabs {
@@ -61,6 +64,7 @@ templ List(p PageMeta, d *ListData) {
 					<option value="status_qualified">Mark qualified</option>
 					<option value="status_contacted">Mark contacted</option>
 					<option value="status_new">Mark new</option>
+					<option value="refresh">Refresh (queue)</option>
 				</select>
 				<select name="list_id" class="input h-7 rounded-md border border-line bg-white px-1.5 text-[12.5px]">
 					<option value="">No list…</option>
@@ -73,7 +77,7 @@ templ List(p PageMeta, d *ListData) {
 			<div class="overflow-x-auto">
 				<table class="tbl w-full text-[13px]">
 					<thead>
-						<tr><th class="w-8"><input type="checkbox" id="check-all" class="w-4 h-4 accent-brand-600"/></th><th>Company</th><th>Contact</th><th>Industry</th><th>Location</th><th>Email</th><th>Phone</th><th class="text-right">Score</th><th>Status</th><th>Owner</th><th>Source</th><th>Activity</th></tr>
+						<tr><th class="w-8"><input type="checkbox" id="check-all" class="w-4 h-4 accent-brand-600"/></th><th>Company</th><th>Contact</th><th>Industry</th><th>Location</th><th>Email</th><th>Phone</th><th class="text-right">Score</th><th class="text-right">Quality</th><th>Contact</th><th>Opp</th><th>Status</th><th>Owner</th><th>Source</th><th>Activity</th></tr>
 					</thead>
 					<tbody id="leads-tbody">
 						@leadRows(d.Items)
@@ -105,6 +109,21 @@ templ leadRows(items []Item) {
 			<td class="text-ink-2 max-w-[200px] truncate">{ it.Email }</td>
 			<td class="text-ink-2 whitespace-nowrap">{ it.Phone }</td>
 			<td class="text-right">@components.ScoreBadge(it.Score)</td>
+			<td class="text-right tabular-nums text-ink-2" title="Data completeness (separate from sales score)">{ itoa(it.Quality) }</td>
+			<td>
+				if it.Contactable {
+					<span class="inline-block w-2 h-2 rounded-full bg-emerald-500" title="Contactable: has email or phone"></span>
+				} else {
+					<span class="inline-block w-2 h-2 rounded-full bg-gray-300" title="Not contactable"></span>
+				}
+			</td>
+			<td class="text-center tabular-nums">
+				if it.Opps > 0 {
+					<span class="text-[11px] font-semibold text-brand-700" title="Detected opportunities — see drawer">{ itoa(it.Opps) }</span>
+				} else {
+					<span class="text-ink-3">—</span>
+				}
+			</td>
 			<td>@components.StatusBadge(it.Status)</td>
 			<td class="text-ink-2">{ it.Owner }</td>
 			<td class="text-ink-3">{ it.Source }</td>

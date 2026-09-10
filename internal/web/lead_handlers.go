@@ -17,6 +17,7 @@ func (s *Server) leadRoutes() {
 	s.Router.HandleFunc("GET", "/leads/{id}", s.requirePerm(role.LeadRead, s.handleLeadDetail))
 	s.Router.HandleFunc("GET", "/leads/{id}/drawer", s.requirePerm(role.LeadRead, s.handleLeadDrawer))
 	s.Router.HandleFunc("POST", "/leads/{id}", s.requirePerm(role.LeadUpdate, s.handleLeadUpdate))
+	s.Router.HandleFunc("POST", "/leads/{id}/refresh", s.requirePerm(role.LeadUpdate, s.handleLeadRefresh))
 	s.Router.HandleFunc("POST", "/leads/bulk", s.requirePerm(role.LeadUpdate, s.handleLeadBulk))
 }
 
@@ -166,7 +167,9 @@ func (s *Server) handleLeadList(w http.ResponseWriter, r *http.Request) {
 			COALESCE(c.city,''), COALESCE(c.province,''), COALESCE(ct.email,''), COALESCE(NULLIF(ct.phone,''), c.phone,''),
 			l.lead_score, l.status, COALESCE(u.name,''), l.source,
 			COALESCE(to_char(l.last_activity_at,'DD Mon HH24:MI'), to_char(l.created_at,'DD Mon')),
-			to_char(l.created_at,'DD Mon'), l.created_at
+			to_char(l.created_at,'DD Mon'), l.created_at, l.data_quality,
+			(SELECT COUNT(*) FROM lead_opportunities lo WHERE lo.lead_id = l.id),
+			(ct.email <> '' OR COALESCE(NULLIF(ct.phone,''), c.phone,'') <> '')
 		FROM leads l
 		JOIN companies c ON c.id = l.company_id
 		LEFT JOIN contacts ct ON ct.id = l.primary_contact_id
@@ -194,7 +197,7 @@ func (s *Server) handleLeadList(w http.ResponseWriter, r *http.Request) {
 		var created time.Time
 		if err := rows.Scan(&it.ID, &it.Company, &it.CompanyID, &it.Contact, &it.Industry, &it.City,
 			&it.Province, &it.Email, &it.Phone, &it.Score, &it.Status, &it.Owner, &it.Source,
-			&it.LastActivity, &it.Created, &created); err == nil {
+			&it.LastActivity, &it.Created, &created, &it.Quality, &it.Opps, &it.Contactable); err == nil {
 			d.Items = append(d.Items, it)
 			lastCreated, lastID = created, it.ID
 		}

@@ -27,6 +27,12 @@ func (s *Server) settingsRoutes() {
 	s.Router.HandleFunc("POST", "/settings/email-accounts/{id}/test", s.requirePerm(role.IntegrationMange, s.handleEmailAccountTest))
 	s.Router.HandleFunc("POST", "/settings/email-accounts/{id}/toggle", s.requirePerm(role.IntegrationMange, s.handleEmailAccountToggle))
 	s.Router.HandleFunc("POST", "/settings/email-accounts/{id}/delete", s.requirePerm(role.IntegrationMange, s.handleEmailAccountDelete))
+	s.Router.HandleFunc("GET", "/settings/integrations", s.requirePerm(role.IntegrationMange, func(w http.ResponseWriter, r *http.Request) {
+		s.handleIntegrations(w, r)
+	}))
+	s.Router.HandleFunc("POST", "/settings/integrations/{slug}/toggle", s.requirePerm(role.IntegrationMange, s.handleIntegrationToggle))
+	s.Router.HandleFunc("POST", "/settings/integrations/google_places/key", s.requirePerm(role.IntegrationMange, s.handleGoogleKeySave))
+	s.Router.HandleFunc("POST", "/settings/integrations/google_places/clear", s.requirePerm(role.IntegrationMange, s.handleGoogleKeyClear))
 }
 
 func (s *Server) handleWorkspace(w http.ResponseWriter, r *http.Request, errMsg ...string) {

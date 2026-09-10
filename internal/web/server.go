@@ -7,6 +7,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"leadforge/internal/auth"
+	"leadforge/internal/crawler"
 	"leadforge/internal/csrf"
 	"leadforge/internal/flash"
 	"leadforge/internal/httpx"
@@ -29,22 +30,29 @@ type Server struct {
 	Ren     *webapp.Renderer
 	Queue   *queue.Client
 	Runner  *search.Runner
+	Crawler *crawler.Manager
 }
 
 // Config is the web server config subset.
 type Config struct {
-	AppName       string
-	Env           string
-	Addr          string
-	AppURL        string
-	RedisAddr     string
-	Secret        string
-	InboundKey    string
-	CrawlWorkers  int
-	CrawlDomain   int
-	CrawlTimeout  string
-	CrawlMaxPages int
-	CrawlMaxDepth int
+	AppName        string
+	Env            string
+	Addr           string
+	AppURL         string
+	RedisAddr      string
+	Secret         string
+	InboundKey     string
+	MaxSearches    int
+	SearchWorkers  int
+	HasGoogleKey   bool
+	CrawlGlobal    int
+	BrowserOn      bool
+	BrowserWorkers int
+	CrawlWorkers   int
+	CrawlDomain    int
+	CrawlTimeout   string
+	CrawlMaxPages  int
+	CrawlMaxDepth  int
 }
 
 // New builds the server with all routes registered.

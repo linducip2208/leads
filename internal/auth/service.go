@@ -253,13 +253,26 @@ func (s *Service) EnsureSystemRoles(ctx context.Context) error {
 		role.RoleViewer:       "Viewer",
 	} {
 		var id string
-		err := tx.QueryRow(ctx, `
-			INSERT INTO roles (tenant_id, slug, name, is_system)
-			VALUES (NULL, $1, $2, true)
-			ON CONFLICT (tenant_id, slug) DO UPDATE SET name = EXCLUDED.name
-			RETURNING id`, slug, name).Scan(&id)
+		// NOTE: tenant_id IS NULL never conflicts in Postgres, so check-then-insert.
+		err := tx.QueryRow(ctx, `SELECT id::text FROM roles WHERE tenant_id IS NULL AND slug=$1`, slug).Scan(&id)
 		if err != nil {
-			return err
+			if !errors.Is(err, pgx.ErrNoRows) {
+				return err
+			}
+			if err := tx.QueryRow(ctx, `
+				INSERT INTO roles (tenant_id, slug, name, is_system)
+				VALUES (NULL, $1, $2, true)
+				ON CONFLICT DO NOTHING RETURNING id::text`, slug, name).Scan(&id); err != nil {
+				if !errors.Is(err, pgx.ErrNoRows) {
+					return err
+				}
+				// raced insert won; re-read
+				if err := tx.QueryRow(ctx, `SELECT id::text FROM roles WHERE tenant_id IS NULL AND slug=$1`, slug).Scan(&id); err != nil {
+					return err
+				}
+			}
+		} else {
+			_, _ = tx.Exec(ctx, `UPDATE roles SET name=$2 WHERE id=$1`, id, name)
 		}
 		perms := role.RoleTemplates[slug]
 		for _, p := range perms {

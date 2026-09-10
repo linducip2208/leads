@@ -21,6 +21,7 @@ func (s *Server) searchRoutes() {
 	s.Router.HandleFunc("GET", "/searches/saved", s.requirePerm(role.LeadRead, s.handleSavedList))
 	s.Router.HandleFunc("GET", "/searches/{id}", s.requirePerm(role.LeadRead, s.handleSearchDetail))
 	s.Router.HandleFunc("GET", "/searches/{id}/events", s.requirePerm(role.LeadRead, s.handleSearchEvents))
+	s.Router.HandleFunc("GET", "/searches/{id}/latest", s.requirePerm(role.LeadRead, s.handleSearchLatest))
 	s.Router.HandleFunc("POST", "/searches/{id}/pause", s.requirePerm(role.SearchCreate, s.handleSearchPause))
 	s.Router.HandleFunc("POST", "/searches/{id}/resume", s.requirePerm(role.SearchCreate, s.handleSearchResume))
 	s.Router.HandleFunc("POST", "/searches/{id}/cancel", s.requirePerm(role.SearchCreate, s.handleSearchCancel))
@@ -102,6 +103,75 @@ func (s *Server) handleSearchDetail(w http.ResponseWriter, r *http.Request) {
 		WHERE l.tenant_id=$1 AND l.source_search_id=$2 AND l.lead_score >= $3 AND l.status <> 'archived'
 		ORDER BY l.lead_score DESC LIMIT 50`, id.TenantID, sid, minScore)
 	d := &searches.DetailData{Search: it, Progress: prog, MinScore: minScore}
+	d.Funnel = []searches.FunnelStep{
+		{Label: "Discovered", Value: int(prog.Discovered)},
+		{Label: "Unique", Value: int(prog.Saved + prog.Matched)},
+		{Label: "Crawled", Value: int(prog.Crawled)},
+		{Label: "Enriched", Value: int(prog.Enriched)},
+		{Label: "Contactable", Value: int(prog.Contactable)},
+		{Label: "Qualified", Value: int(prog.Qualified)},
+		{Label: "Hot", Value: int(prog.Hot)},
+	}
+	// failure breakdown
+	frows, _ := s.PG.Query(r.Context(), `
+		SELECT COALESCE(NULLIF(fail_reason,''),'UNKNOWN'), COUNT(*) FROM raw_leads
+		WHERE search_id=$1 AND status='failed' GROUP BY 1 ORDER BY 2 DESC`, sid)
+	if frows != nil {
+		defer frows.Close()
+		for frows.Next() {
+			var fr searches.FailRow
+			if err := frows.Scan(&fr.Reason, &fr.Count); err == nil {
+				d.Failures = append(d.Failures, fr)
+			}
+		}
+	}
+	// quality stats over converted leads
+	var total, hot, contact int
+	var avg float64
+	_ = s.PG.QueryRow(r.Context(), `
+		SELECT COUNT(*), COUNT(*) FILTER (WHERE l.lead_score >= 90),
+			COUNT(*) FILTER (WHERE ct.email <> '' OR COALESCE(c.phone,'') <> ''),
+			COALESCE(AVG(l.lead_score),0)
+		FROM leads l JOIN companies c ON c.id = l.company_id
+		LEFT JOIN contacts ct ON ct.id = l.primary_contact_id
+		WHERE l.tenant_id=$1 AND l.source_search_id=$2 AND l.status <> 'archived'`,
+		id.TenantID, sid).Scan(&total, &hot, &contact, &avg)
+	d.Quality.AvgScore = avg
+	if total > 0 {
+		d.Quality.HotPct = float64(hot) / float64(total) * 100
+		d.Quality.ContactablePct = float64(contact) / float64(total) * 100
+	}
+	qry := func(sql string) []string {
+		var out []string
+		rr, _ := s.PG.Query(r.Context(), sql, id.TenantID, sid)
+		if rr == nil {
+			return out
+		}
+		defer rr.Close()
+		for rr.Next() {
+			var v string
+			var n int
+			if err := rr.Scan(&v, &n); err == nil && v != "" {
+				out = append(out, v+" ("+itoa(n)+")")
+			}
+		}
+		return out
+	}
+	d.Quality.TopIndustries = qry(`SELECT COALESCE(NULLIF(c.industry,''),'—'), COUNT(*) FROM leads l JOIN companies c ON c.id=l.company_id WHERE l.tenant_id=$1 AND l.source_search_id=$2 AND l.status<>'archived' GROUP BY 1 ORDER BY 2 DESC LIMIT 5`)
+	d.Quality.TopCities = qry(`SELECT COALESCE(NULLIF(c.city,''),'—'), COUNT(*) FROM leads l JOIN companies c ON c.id=l.company_id WHERE l.tenant_id=$1 AND l.source_search_id=$2 AND l.status<>'archived' GROUP BY 1 ORDER BY 2 DESC LIMIT 5`)
+	// per-source debug
+	srows, _ := s.PG.Query(r.Context(), `
+		SELECT source_slug, candidates, accepted, errors, COALESCE(last_error,'')
+		FROM search_source_stats WHERE search_id=$1 ORDER BY candidates DESC`, sid)
+	if srows != nil {
+		defer srows.Close()
+		for srows.Next() {
+			var sr searches.SrcRow
+			if err := srows.Scan(&sr.Slug, &sr.Candidates, &sr.Accepted, &sr.Errors, &sr.LastError); err == nil {
+				d.Sources = append(d.Sources, sr)
+			}
+		}
+	}
 	if rows != nil {
 		defer rows.Close()
 		for rows.Next() {
@@ -113,6 +183,28 @@ func (s *Server) handleSearchDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	p := s.page(w, r, it.Query, "/searches")
 	layouts.AppShell(s.Ren, id, p, searches.Detail(p, d)).Render(r.Context(), w)
+}
+
+// handleSearchLatest returns the newest converted leads as an HTMX fragment.
+func (s *Server) handleSearchLatest(w http.ResponseWriter, r *http.Request) {
+	id := webappIdentity(r)
+	sid := r.PathValue("id")
+	rows, _ := s.PG.Query(r.Context(), `
+		SELECT l.id::text, c.name, l.lead_score, to_char(l.created_at,'HH24:MI:SS')
+		FROM leads l JOIN companies c ON c.id = l.company_id
+		WHERE l.tenant_id=$1 AND l.source_search_id=$2 AND l.status <> 'archived'
+		ORDER BY l.created_at DESC LIMIT 5`, id.TenantID, sid)
+	var items []searches.LatestRow
+	if rows != nil {
+		defer rows.Close()
+		for rows.Next() {
+			var lr searches.LatestRow
+			if err := rows.Scan(&lr.LeadID, &lr.Company, &lr.Score, &lr.When); err == nil {
+				items = append(items, lr)
+			}
+		}
+	}
+	searches.LatestRows(items).Render(r.Context(), w)
 }
 
 // handleSearchEvents streams progress via SSE.

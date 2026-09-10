@@ -60,6 +60,9 @@ type Item struct {
 	Source       string
 	LastActivity string
 	Created      string
+	Quality      int
+	Opps         int
+	Contactable  bool
 }
 
 // ListData powers the leads table.
@@ -117,34 +120,42 @@ type EnrichRow struct {
 	When       string
 }
 
+// OppRow is a detected opportunity.
+type OppRow struct {
+	Title      string
+	Confidence int
+	Reason     string
+}
+
 // DetailData powers lead detail + drawer.
 type DetailData struct {
-	ID           string
-	Company      string
-	CompanyID    string
-	Website      string
-	Domain       string
-	Location     string
-	Industry     string
-	Score        int
-	ScoreLabel   string
-	Status       string
-	Owner        string
-	OwnerID      string
-	Source       string
-	SearchID     string
-	Created      string
-	Contact      ContactRow
-	Contacts     []ContactRow
-	Breakdown    []ScoreItem
-	Activities   []ActivityRow
-	Deals        []DealRow
-	Enrichments  []EnrichRow
-	Owners       []Option
-	HasEmail     bool
-	HasWhatsApp  bool
-	Email        string
-	WhatsAppLink string
+	ID            string
+	Company       string
+	CompanyID     string
+	Website       string
+	Domain        string
+	Location      string
+	Industry      string
+	Score         int
+	ScoreLabel    string
+	Status        string
+	Owner         string
+	OwnerID       string
+	Source        string
+	SearchID      string
+	Created       string
+	Contact       ContactRow
+	Contacts      []ContactRow
+	Breakdown     []ScoreItem
+	Activities    []ActivityRow
+	Deals         []DealRow
+	Enrichments   []EnrichRow
+	Opportunities []OppRow
+	Owners        []Option
+	HasEmail      bool
+	HasWhatsApp   bool
+	Email         string
+	WhatsAppLink  string
 }
 
 // filterQuery encodes the filter as a query string (cursor optional).
@@ -198,6 +209,10 @@ func moreURL(f Filter, cursor string) string {
 
 func bulkRedirect(f Filter) string {
 	return "/leads?" + f.filterQuery("")
+}
+
+func exportQuery(f Filter) string {
+	return f.filterQuery("")
 }
 
 func itoa(n int) string {

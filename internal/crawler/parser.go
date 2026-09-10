@@ -3,6 +3,7 @@ package crawler
 import (
 	"net/url"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
@@ -13,15 +14,134 @@ type Extracted struct {
 	Title        string
 	CompanyName  string
 	Description  string
-	Emails       []string
+	Emails       []string // ranked best-first (see RankEmails)
 	Phones       []string
 	WhatsApps    []string
 	Address      string
 	Socials      map[string]string
-	Technologies []string
+	Technologies []Tech
 	// JSRequired flags pages that render content client-side (SPA shells).
 	// Chromedp fallback can target these; the default crawler records and skips.
 	JSRequired bool
+}
+
+// Tech is a detected technology with evidence.
+type Tech struct {
+	Name     string
+	Evidence string
+}
+
+// EmailKind classifies an address: personal | role | noreply | bad.
+func EmailKind(addr string) string {
+	at := strings.LastIndex(addr, "@")
+	if at <= 0 {
+		return "bad"
+	}
+	local := strings.ToLower(addr[:at])
+	domain := strings.ToLower(addr[at+1:])
+	if domain == "" || !strings.Contains(domain, ".") || strings.Contains(addr, " ") {
+		return "bad"
+	}
+	for _, suf := range []string{".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".css", ".js"} {
+		if strings.HasSuffix(domain, suf) {
+			return "bad"
+		}
+	}
+	if strings.HasSuffix(domain, ".example") || strings.HasSuffix(domain, ".test") ||
+		strings.HasSuffix(domain, ".localhost") || domain == "example.com" || domain == "localhost" {
+		return "bad"
+	}
+	if strings.HasPrefix(local, "noreply") || strings.HasPrefix(local, "no-reply") ||
+		strings.HasPrefix(local, "donotreply") || strings.HasPrefix(local, "do-not-reply") {
+		return "noreply"
+	}
+	if roleLocals[local] {
+		return "role"
+	}
+	if disposableHosts[domain] {
+		return "bad"
+	}
+	return "personal"
+}
+
+var roleLocals = map[string]bool{
+	"info": true, "admin": true, "support": true, "sales": true, "hello": true,
+	"contact": true, "contact-us": true, "help": true, "mail": true, "office": true,
+	"cs": true, "marketing": true, "billing": true, "hr": true, "hrd": true,
+	"career": true, "careers": true, "finance": true, "accounting": true,
+}
+
+var disposableHosts = map[string]bool{
+	"mailinator.com": true, "tempmail.com": true, "10minutemail.com": true,
+	"guerrillamail.com": true, "yopmail.com": true, "trashmail.com": true,
+	"getnada.com": true, "temp-mail.org": true, "maildrop.cc": true,
+}
+
+// emailRank orders addresses: personal@company-domain first, then
+// sales/contact/info/support, then other roles; noreply/bad excluded.
+func emailRank(addr, companyDomain string, local string) int {
+	at := strings.LastIndex(addr, "@")
+	domain := ""
+	if at > 0 {
+		domain = strings.ToLower(addr[at+1:])
+	}
+	onDomain := companyDomain != "" && domain == companyDomain
+	switch {
+	case local == "sales" && onDomain:
+		return 10
+	case local == "contact" || local == "contact-us":
+		if onDomain {
+			return 20
+		}
+		return 60
+	case local == "info" || local == "hello":
+		if onDomain {
+			return 30
+		}
+		return 70
+	case local == "support" || local == "help":
+		return 40
+	case roleLocals[local]:
+		return 50
+	default: // personal
+		if onDomain {
+			return 0
+		}
+		return 80
+	}
+}
+
+// RankEmails sorts best-first and drops noreply/bad addresses.
+func RankEmails(emails []string, companyDomain string) []string {
+	type scored struct {
+		addr string
+		rank int
+	}
+	seen := map[string]bool{}
+	var list []scored
+	for _, e := range emails {
+		e = strings.ToLower(strings.TrimSpace(e))
+		if e == "" || seen[e] {
+			continue
+		}
+		seen[e] = true
+		kind := EmailKind(e)
+		if kind == "noreply" || kind == "bad" {
+			continue
+		}
+		at := strings.LastIndex(e, "@")
+		local := e
+		if at > 0 {
+			local = e[:at]
+		}
+		list = append(list, scored{e, emailRank(e, companyDomain, local)})
+	}
+	sort.SliceStable(list, func(i, j int) bool { return list[i].rank < list[j].rank })
+	out := make([]string, 0, len(list))
+	for _, s := range list {
+		out = append(out, s.addr)
+	}
+	return out
 }
 
 var (
@@ -54,6 +174,9 @@ var techSignatures = map[string][]string{
 	"Vue":              {"vue.runtime", "__VUE__"},
 	"Laravel":          {"laravel"},
 	"HubSpot":          {"hs-scripts", "hubspot"},
+	"Salesforce":       {"salesforce", "sfdc"},
+	"Zoho":             {"zoho", "zcga"},
+	"Odoo":             {"odoo"},
 	"Google Analytics": {"googletagmanager", "google-analytics"},
 	"Meta Pixel":       {"connect.facebook.net"},
 	"Tailwind":         {"tailwind"},
@@ -195,17 +318,19 @@ func Extract(pageURL string, body []byte) *Extracted {
 		}
 	}
 
-	// technology fingerprints from markup
+	// technology fingerprints from markup (with evidence)
 	html := string(body)
 	lh := strings.ToLower(html)
 	for tech, sigs := range techSignatures {
 		for _, sig := range sigs {
 			if strings.Contains(lh, strings.ToLower(sig)) {
-				out.Technologies = appendUnique(out.Technologies, tech)
+				out.Technologies = append(out.Technologies, Tech{Name: tech, Evidence: sig})
 				break
 			}
 		}
 	}
+	// order emails best-first (domain-aware ranking happens downstream)
+	out.Emails = RankEmails(out.Emails, "")
 
 	// JS-rendered shell detection: mount node present but almost no content.
 	textLen := len(strings.Fields(text))
@@ -238,7 +363,16 @@ func (e *Extracted) Merge(o *Extracted) {
 		e.WhatsApps = appendUnique(e.WhatsApps, v)
 	}
 	for _, v := range o.Technologies {
-		e.Technologies = appendUnique(e.Technologies, v)
+		dup := false
+		for _, e2 := range e.Technologies {
+			if e2.Name == v.Name {
+				dup = true
+				break
+			}
+		}
+		if !dup {
+			e.Technologies = append(e.Technologies, v)
+		}
 	}
 	for k, v := range o.Socials {
 		if _, ok := e.Socials[k]; !ok {

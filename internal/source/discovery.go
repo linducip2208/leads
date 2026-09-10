@@ -25,6 +25,12 @@ func NewWebsiteSearchSource() *WebsiteSearchSource { return &WebsiteSearchSource
 func (w *WebsiteSearchSource) Slug() string { return "website_search" }
 func (w *WebsiteSearchSource) Name() string { return "Web Search" }
 
+func (w *WebsiteSearchSource) Info() SourceInfo {
+	return SourceInfo{Slug: w.Slug(), Name: w.Name(),
+		Description: "Keyless web discovery of company websites.",
+		Priority:    60, Confidence: 60}
+}
+
 func (w *WebsiteSearchSource) Search(ctx context.Context, query SearchQuery) (<-chan RawLead, error) {
 	out := make(chan RawLead, 64)
 	go func() {
@@ -58,14 +64,15 @@ func (w *WebsiteSearchSource) Search(ctx context.Context, query SearchQuery) (<-
 				case <-ctx.Done():
 					return
 				case out <- RawLead{
-					SourceSlug: w.Slug(),
-					Website:    site,
-					Domain:     host,
-					SourceURL:  site,
-					Country:    query.Country,
-					Province:   query.Province,
-					City:       query.City,
-					Industry:   query.Industry,
+					SourceSlug: w.Slug(), SourceConf: 60,
+					DiscoveredAt: time.Now(),
+					Website:      site,
+					Domain:       host,
+					SourceURL:    site,
+					Country:      query.Country,
+					Province:     query.Province,
+					City:         query.City,
+					Industry:     query.Industry,
 				}:
 					sent++
 				}
@@ -153,6 +160,12 @@ func NewPublicDirectorySource() *PublicDirectorySource { return &PublicDirectory
 func (p *PublicDirectorySource) Slug() string { return "public_directory" }
 func (p *PublicDirectorySource) Name() string { return "Public Directory (OSM)" }
 
+func (p *PublicDirectorySource) Info() SourceInfo {
+	return SourceInfo{Slug: p.Slug(), Name: p.Name(),
+		Description: "Real places from OpenStreetMap Nominatim (keyless).",
+		Priority:    80, Confidence: 75}
+}
+
 func (p *PublicDirectorySource) Search(ctx context.Context, query SearchQuery) (<-chan RawLead, error) {
 	out := make(chan RawLead, 64)
 	go func() {
@@ -173,18 +186,19 @@ func (p *PublicDirectorySource) Search(ctx context.Context, query SearchQuery) (
 			case <-ctx.Done():
 				return
 			case out <- RawLead{
-				SourceSlug: p.Slug(),
-				ExternalID: pl.PlaceID,
-				Name:       pl.Name,
-				Website:    pl.Website,
-				Phone:      pl.Phone,
-				Address:    pl.Address,
-				City:       firstNonEmpty(pl.City, query.City),
-				Province:   firstNonEmpty(pl.Province, query.Province),
-				Country:    firstNonEmpty(pl.Country, query.Country),
-				Industry:   query.Industry,
-				SourceURL:  "https://www.openstreetmap.org/" + pl.OSMRef,
-				Payload:    map[string]string{"lat": pl.Lat, "lon": pl.Lon, "class": pl.Class},
+				SourceSlug: p.Slug(), SourceConf: 75,
+				DiscoveredAt: time.Now(),
+				ExternalID:   pl.PlaceID,
+				Name:         pl.Name,
+				Website:      pl.Website,
+				Phone:        pl.Phone,
+				Address:      pl.Address,
+				City:         firstNonEmpty(pl.City, query.City),
+				Province:     firstNonEmpty(pl.Province, query.Province),
+				Country:      firstNonEmpty(pl.Country, query.Country),
+				Industry:     query.Industry,
+				SourceURL:    "https://www.openstreetmap.org/" + pl.OSMRef,
+				Payload:      map[string]string{"lat": pl.Lat, "lon": pl.Lon, "class": pl.Class},
 			}:
 			}
 		}

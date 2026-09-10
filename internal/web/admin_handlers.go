@@ -2,11 +2,13 @@ package web
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"runtime"
 	"time"
 
+	"leadforge/internal/metrics"
 	"leadforge/internal/queue"
 	"leadforge/internal/role"
 	"leadforge/web/layouts"
@@ -17,6 +19,8 @@ func (s *Server) adminRoutes() {
 	s.Router.HandleFunc("GET", "/admin/health", s.requirePerm(role.AdminPlatform, s.handleAdminHealth))
 	s.Router.HandleFunc("GET", "/admin/queue", s.requirePerm(role.AdminPlatform, s.handleAdminQueue))
 	s.Router.HandleFunc("GET", "/admin/crawlers", s.requirePerm(role.AdminPlatform, s.handleAdminCrawlers))
+	s.Router.HandleFunc("GET", "/admin/sources", s.requirePerm(role.AdminPlatform, s.handleAdminSources))
+	s.Router.HandleFunc("GET", "/admin/metrics.json", s.requirePerm(role.AdminPlatform, s.handleAdminMetrics))
 }
 
 func hbAge(ctx context.Context, addr, key string) (status, detail string) {
@@ -110,12 +114,27 @@ func (s *Server) handleAdminQueue(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleAdminCrawlers(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	// pool config comes from env-driven cfg; read via query of a tiny probe is
-	// unnecessary — values are passed at boot. Show DB-driven stats here.
 	d := &admin.CrawlerData{
 		Workers: s.Cfg.CrawlWorkers, DomainConc: s.Cfg.CrawlDomain, Timeout: s.Cfg.CrawlTimeout,
+		GlobalCap: s.Cfg.CrawlGlobal, BrowserOn: s.Cfg.BrowserOn, BrowserN: s.Cfg.BrowserWorkers,
+	}
+	if s.Crawler != nil {
+		snap := s.Crawler.Snapshot()
+		d.GlobalUse = snap.GlobalUse
+		if snap.GlobalCap > 0 {
+			d.GlobalCap = snap.GlobalCap
+		}
+		if s.Crawler.Browser != nil {
+			d.BrowserOn = s.Cfg.BrowserOn && s.Crawler.Browser.Available()
+		}
+		d.RobotsHit = int(snap.RobotsHit)
+		d.SSRFHit = int(snap.SSRFHit)
+		for _, c := range s.Crawler.Cooldowns() {
+			d.Cooldowns = append(d.Cooldowns, admin.CooldownRow{Domain: c.Domain, Until: c.Until.Format("15:04:05")})
+		}
 	}
 	_ = s.PG.QueryRow(ctx, `SELECT COUNT(*) FROM crawl_jobs WHERE status='pending'`).Scan(&d.PendingJobs)
+	d.QueueDepth = d.PendingJobs
 	_ = s.PG.QueryRow(ctx, `
 		SELECT COALESCE(SUM(pages)*1.0/NULLIF(GREATEST(SUM(window_s),60),0)*60,0) FROM crawler_metrics
 		WHERE at > now() - interval '1 hour'`).Scan(&d.PagesMin)
@@ -149,6 +168,48 @@ func (s *Server) handleAdminCrawlers(w http.ResponseWriter, r *http.Request) {
 	}
 	p := s.page(w, r, "Crawlers", "/admin/crawlers")
 	layouts.AppShell(s.Ren, webappIdentity(r), p, admin.Crawlers(p, d)).Render(r.Context(), w)
+}
+
+func (s *Server) handleAdminSources(w http.ResponseWriter, r *http.Request) {
+	rows, err := s.PG.Query(r.Context(), `
+		SELECT COALESCE(source_slug,'unknown'),
+			COUNT(*) FILTER (WHERE discovered_at > now() - interval '7 days'),
+			COUNT(*) FILTER (WHERE status IN ('matched','converted') AND discovered_at > now() - interval '7 days'),
+			COUNT(*) FILTER (WHERE status='failed' AND discovered_at > now() - interval '7 days'),
+			COALESCE(MAX(discovered_at) FILTER (WHERE status IN ('matched','converted')), now() - interval '30 days'),
+			COALESCE(MAX(fail_reason) FILTER (WHERE status='failed'), '')
+		FROM raw_leads GROUP BY 1 ORDER BY 2 DESC`)
+	var out []admin.SourceStatRow
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var it admin.SourceStatRow
+			var lastOK time.Time
+			if err := rows.Scan(&it.Slug, &it.Candidates, &it.Accepted, &it.Errors, &lastOK, &it.LastError); err == nil {
+				total := it.Accepted + it.Errors
+				if total > 0 {
+					it.SuccessPct = float64(it.Accepted) / float64(total) * 100
+				}
+				if it.Accepted > 0 {
+					it.LastOK = lastOK.Format("02 Jan 15:04")
+				} else {
+					it.LastOK = "—"
+				}
+				out = append(out, it)
+			}
+		}
+	}
+	p := s.page(w, r, "Sources", "/admin/sources")
+	layouts.AppShell(s.Ren, webappIdentity(r), p, admin.Sources(p, out)).Render(r.Context(), w)
+}
+
+func (s *Server) handleAdminMetrics(w http.ResponseWriter, r *http.Request) {
+	out := map[string]any{"metrics": metrics.Snap(), "uptime_s": int64(time.Since(startTime).Seconds())}
+	if s.Crawler != nil {
+		out["crawler"] = s.Crawler.Snapshot()
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(out)
 }
 
 func hostOf(raw string) string {

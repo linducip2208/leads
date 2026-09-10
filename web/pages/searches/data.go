@@ -47,6 +47,48 @@ type DetailData struct {
 	Progress *search.Progress
 	Results  []ResultRow
 	MinScore int
+	Funnel   []FunnelStep
+	Failures []FailRow
+	Quality  QualityStats
+	Sources  []SrcRow
+}
+
+// FunnelStep is one funnel row.
+type FunnelStep struct {
+	Label string
+	Value int
+}
+
+// FailRow is one failure-reason count.
+type FailRow struct {
+	Reason string
+	Count  int
+}
+
+// QualityStats aggregates result quality.
+type QualityStats struct {
+	AvgScore       float64
+	HotPct         float64
+	ContactablePct float64
+	TopIndustries  []string
+	TopCities      []string
+}
+
+// SrcRow is per-source debug telemetry.
+type SrcRow struct {
+	Slug       string
+	Candidates int
+	Accepted   int
+	Errors     int
+	LastError  string
+}
+
+// LatestRow is a realtime discovered lead.
+type LatestRow struct {
+	LeadID  string
+	Company string
+	Score   int
+	When    string
 }
 
 // SavedItem is one saved search.

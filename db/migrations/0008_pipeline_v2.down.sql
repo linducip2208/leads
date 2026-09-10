@@ -1,0 +1,31 @@
+-- revert 0008
+DROP TABLE IF EXISTS domain_cooldowns;
+DROP TABLE IF EXISTS search_source_stats;
+DROP TABLE IF EXISTS company_technologies;
+ALTER TABLE contacts DROP COLUMN IF EXISTS email_kind;
+ALTER TABLE leads DROP COLUMN IF EXISTS data_quality;
+DROP INDEX IF EXISTS idx_companies_canon;
+ALTER TABLE companies DROP COLUMN IF EXISTS last_crawl_at;
+ALTER TABLE companies DROP COLUMN IF EXISTS canonical_domain;
+ALTER TABLE companies DROP COLUMN IF EXISTS data_quality;
+DROP INDEX IF EXISTS idx_raw_search_source;
+DROP INDEX IF EXISTS idx_raw_search_fail;
+ALTER TABLE raw_leads DROP COLUMN IF EXISTS discovered_at;
+ALTER TABLE raw_leads DROP COLUMN IF EXISTS source_confidence;
+ALTER TABLE raw_leads DROP COLUMN IF EXISTS quality;
+ALTER TABLE raw_leads DROP COLUMN IF EXISTS fail_reason;
+UPDATE raw_leads SET status = 'new' WHERE status = 'discovered';
+UPDATE raw_leads SET status = 'duplicate' WHERE status = 'matched';
+UPDATE raw_leads SET status = 'failed' WHERE status NOT IN ('new','duplicate','failed','normalized','crawled','enriched','converted','filtered');
+ALTER TABLE raw_leads DROP CONSTRAINT IF EXISTS raw_leads_status_check;
+ALTER TABLE raw_leads ADD CONSTRAINT raw_leads_status_check
+    CHECK (status IN ('new','normalized','matched','duplicate','failed'));
+ALTER TABLE lead_searches DROP COLUMN IF EXISTS last_heartbeat;
+ALTER TABLE lead_searches DROP COLUMN IF EXISTS worker_id;
+ALTER TABLE lead_searches DROP COLUMN IF EXISTS run_attempt;
+ALTER TABLE lead_searches DROP COLUMN IF EXISTS filtered_count;
+ALTER TABLE lead_searches DROP COLUMN IF EXISTS hot_count;
+ALTER TABLE lead_searches DROP COLUMN IF EXISTS contactable_count;
+ALTER TABLE lead_searches DROP COLUMN IF EXISTS companies_matched;
+ALTER TABLE lead_searches DROP COLUMN IF EXISTS companies_created;
+ALTER TABLE lead_searches DROP COLUMN IF EXISTS discovered_count;

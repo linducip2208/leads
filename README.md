@@ -92,10 +92,39 @@ live SSE progress bar. Results land in `/leads`, `/companies`, `/people`.
 
 ## Lead Finder flow
 
-1. `POST /finder/search` validates, stores `lead_searches` (`queued`) + filters JSON, enqueues `search:run`.
-2. Worker claims (`queued→running`), streams candidates from selected sources (capped at `limit_count`), processes with 4-way bounded concurrency.
-3. Per candidate: `raw_leads` insert → `normalize` → `dedupe` (domain 95 / phone 90 / email 90 / name+city 75 / name 55; auto-link ≥ 60) → crawl (bounded pages/depth, robots honored, SSRF-guarded) → company upsert → contact + email check → `lead_scores` + lead status (`≥90 hot`, `≥50 qualified`) → counters flushed.
-4. Pause/resume/cancel are DB flags polled by the worker; processed data is kept on cancel. Stalled `running` jobs are failed by the watchdog (scheduler, every 5m).
+1. `POST /finder/search` validates, enforces the tenant concurrency quota,
+   stores `lead_searches` (`queued`) + filters JSON, enqueues `search:run`.
+2. Worker claims (`queued→running`, attempt + worker id + heartbeat), streams
+   candidates from selected sources in priority order (capped at `limit_count`),
+   processes with `SEARCH_PROCESS_WORKERS`-way bounded concurrency under a
+   global `CRAWLER_GLOBAL_WORKERS` cap shared fairly across searches.
+3. Per candidate: `raw_leads` (`discovered→normalized`) → `dedupe`
+   (domain 100 / external 100 / phone 90 / email+name 90 / name+city 80 /
+   fuzzy 55; auto-link ≥ 60) → existing companies refresh when stale, else
+   crawl (bounded pages/depth, robots honored, SSRF-guarded, domain
+   cooldowns) → company upsert (canonical domain) + tech evidence →
+   classified contacts → `lead_scores` + lead status (`≥90 hot`, `≥50
+   qualified`) → **minimum-score filtering happens here, never earlier**.
+4. Counters (discovered/raw/unique/created/matched/crawled/enriched/
+   contactable/qualified/hot/filtered/failed) flush live; failures carry
+   reasons (`ROBOTS`, `HTTP_429`, `SSRF_BLOCKED`, …). Pause/resume/cancel are
+   DB flags; processed data survives cancel; the watchdog fails only searches
+   with no heartbeat for `WATCHDOG_STALE_MINUTES` (default 15).
+
+## Crawler
+
+- Engine: HTTP-first (Colly async, per-domain parallelism + delay) with a
+  `CrawlerManager`: global semaphore, politeness, robots cache, retry
+  (429/5xx, 1s/3s/7s + jitter; never on 4xx), domain cooldowns, metrics.
+  Smart page discovery prioritizes contact/about/team, skips login/cart/
+  privacy/binaries, enforces HTML content types + body caps.
+- **Browser fallback (chromedp pool)**: only when `JSRequired` or quality <
+  40; bounded workers, SSRF revalidation of the final URL; HTTP-only when
+  Chrome is unavailable (app still boots).
+- Quality score 0–100 per crawl; extraction ranks emails
+  (personal > sales > contact > info, never noreply), classifies phones
+  (mobile/landline; only mobiles are WhatsApp candidates), records tech
+  evidence and drives deterministic opportunities (Ecommerce/CRM leads).
 
 ## Crawler
 
@@ -109,12 +138,26 @@ live SSE progress bar. Results land in `/leads`, `/companies`, `/people`.
   redirects re-resolved. `CRAWLER_ALLOW_PRIVATE=true` exists for local E2E
   fixtures only.
 
+## Sources
+
+Connectors (`manual`, `google_places`, `public_directory`, `website_search`,
+`custom_api`, `csv`) carry priority + trust confidence. Auto Select uses every
+active, configured connector with fan-in; dedupe happens downstream. Google
+Places activates only with a key (tenant key in Settings → Integrations,
+encrypted; or `GOOGLE_PLACES_API_KEY`). Source health lives at
+Settings → Integrations and Admin → Sources; per-search telemetry on the
+search detail page.
+
 ## Scoring
 
 Built-in: website +10, email +15, verified +20, phone +10, WhatsApp +10,
 industry match +20, location +10, employee +15 → clamped 0–100.
-Tenant rules (`/scoring`) stack on top. Labels: 0–49 Low, 50–69 Medium,
-70–89 Strong, 90–100 Hot.
+Tenant rules (`/scoring`) stack on top and support
+`exists/not_exists/equals/not_equals/contains/not_contains/in/not_in/
+greater_than/less_than`. Labels: 0–49 Low, 50–69 Medium,
+70–89 Strong, 90–100 Hot. Every lead keeps its rule breakdown
+(`lead_scores`), and `data_quality` (completeness) is stored separately
+from sales fit.
 
 ## CRM
 
@@ -168,6 +211,19 @@ set `TEST_DATABASE_URL` or it uses the default dev DB; skips if unreachable).
 End-to-end: start server + worker with `CRAWLER_ALLOW_PRIVATE=true`, create a
 search with local fixture Seed URLs, assert `raw_leads → companies → leads`
 and progress counters move.
+
+## Scale & benchmarks
+
+```powershell
+go run ./cmd/benchmark-search --count=100 --mode=http    # full crawl, fixture farm
+go run ./cmd/benchmark-search --count=1000 --mode=mock   # DB pipeline, no network
+go run ./cmd/benchmark-search --count=10000 --mode=mock  # 10k simulation
+```
+
+Reference (dev laptop, local PG): 100 http in ~2s; 1k mock in ~2s (~470/s);
+10k mock in ~21s (~470 leads/s, 14 peak goroutines, <8 MB RSS). Throughput is
+DB-bound; raise `SEARCH_PROCESS_WORKERS`/`DB_MAX_CONNS` to scale. `go test
+-race` needs a cgo toolchain (absent on stock Windows; run in CI).
 
 ## Production deployment
 

@@ -62,10 +62,12 @@ func navGroups() []navGroup {
 		{Label: "Settings", Items: []navItem{
 			{Label: "Workspace", Href: "/settings/workspace", Icon: "briefcase", Perm: "tenant.manage"},
 			{Label: "Email Accounts", Href: "/settings/email-accounts", Icon: "mail", Perm: "integration.manage"},
+			{Label: "Integrations", Href: "/settings/integrations", Icon: "webhook", Perm: "integration.manage"},
 		}},
 		{Label: "Super Admin", Items: []navItem{
 			{Label: "Queue", Href: "/admin/queue", Icon: "cpu", Perm: "admin.platform"},
 			{Label: "Crawlers", Href: "/admin/crawlers", Icon: "globe", Perm: "admin.platform"},
+			{Label: "Sources", Href: "/admin/sources", Icon: "radar", Perm: "admin.platform"},
 			{Label: "System Health", Href: "/admin/health", Icon: "server", Perm: "admin.platform"},
 		}},
 	}

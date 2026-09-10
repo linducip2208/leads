@@ -52,6 +52,20 @@ type CrawlerData struct {
 	AvgMs       int
 	ActiveHosts []string
 	Errors      []CrawlError
+	GlobalUse   int
+	GlobalCap   int
+	BrowserOn   bool
+	BrowserN    int
+	RobotsHit   int
+	SSRFHit     int
+	QueueDepth  int
+	Cooldowns   []CooldownRow
+}
+
+// CooldownRow is an active domain cooldown.
+type CooldownRow struct {
+	Domain string
+	Until  string
 }
 
 // CrawlError is a recent crawl failure.
@@ -59,4 +73,15 @@ type CrawlError struct {
 	URL   string
 	Error string
 	When  string
+}
+
+// SourceStatRow is one connector's global telemetry.
+type SourceStatRow struct {
+	Slug       string
+	Candidates int
+	Accepted   int
+	Errors     int
+	SuccessPct float64
+	LastOK     string
+	LastError  string
 }

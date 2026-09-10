@@ -75,6 +75,14 @@ templ Crawlers(p PageMeta, d *CrawlerData) {
 		@miniStat("Success rate", formatFloat(d.SuccessRate)+"%")
 		@miniStat("Avg response", itoa(d.AvgMs)+" ms")
 		@miniStat("Pending jobs", itoa(d.PendingJobs))
+		@miniStat("Global load", itoa(d.GlobalUse)+"/"+itoa(d.GlobalCap))
+		@miniStat("Queue depth", itoa(d.QueueDepth))
+		if d.BrowserOn {
+			@miniStat("Browser pool", itoa(d.BrowserN)+" workers")
+		} else {
+			@miniStat("Browser pool", "HTTP-only")
+		}
+		@miniStat("Robots/SSRF blocks", itoa(d.RobotsHit)+"/"+itoa(d.SSRFHit))
 	</div>
 	<div class="grid gap-4 lg:grid-cols-2">
 		<div class="card bg-white border border-line rounded-xl shadow-xs p-4">
@@ -88,6 +96,14 @@ templ Crawlers(p PageMeta, d *CrawlerData) {
 			} else {
 				for _, h := range d.ActiveHosts {
 					<div class="py-1 text-[13px] border-b border-[#f0f1f6] last:border-0">{ h }</div>
+				}
+			}
+			@components.SectionTitle("Domain cooldowns")
+			if len(d.Cooldowns) == 0 {
+				<p class="text-[13px] text-ink-3">None.</p>
+			} else {
+				for _, c := range d.Cooldowns {
+					<div class="py-1 text-[13px] border-b border-[#f0f1f6] last:border-0">{ c.Domain } <span class="text-ink-3">until { c.Until }</span></div>
 				}
 			}
 		</div>
@@ -112,6 +128,33 @@ templ miniStat(label, value string) {
 	<div class="card bg-white border border-line rounded-xl shadow-xs p-3">
 		<div class="text-[11px] uppercase tracking-wide text-ink-3">{ label }</div>
 		<div class="mt-0.5 text-[20px] font-semibold tabular-nums">{ value }</div>
+	</div>
+}
+
+templ Sources(p PageMeta, rows []SourceStatRow) {
+	@components.PageHeader("Sources", "Connector telemetry across all tenants (last 7 days).")
+	<div class="card bg-white border border-line rounded-xl shadow-xs overflow-hidden">
+		<div class="overflow-x-auto">
+			<table class="tbl w-full text-[13px]">
+				<thead><tr><th>Source</th><th class="text-right">Candidates</th><th class="text-right">Accepted</th><th class="text-right">Errors</th><th class="text-right">Success</th><th>Last success</th><th>Last error</th></tr></thead>
+				<tbody>
+					for _, r := range rows {
+						<tr>
+							<td class="font-medium">{ r.Slug }</td>
+							<td class="text-right tabular-nums">{ itoa(r.Candidates) }</td>
+							<td class="text-right tabular-nums">{ itoa(r.Accepted) }</td>
+							<td class="text-right tabular-nums">{ itoa(r.Errors) }</td>
+							<td class="text-right tabular-nums">{ formatFloat(r.SuccessPct) }%</td>
+							<td class="text-ink-3 whitespace-nowrap">{ r.LastOK }</td>
+							<td class="text-red-700 max-w-[320px] truncate">{ r.LastError }</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		</div>
+		if len(rows) == 0 {
+			<div class="p-8 text-center text-[13px] text-ink-3">No source activity in the last 7 days.</div>
+		}
 	</div>
 }
 

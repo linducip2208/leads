@@ -43,7 +43,11 @@ func main() {
 	ws := web.New(web.Config{
 		AppName: cont.Cfg.AppName, Env: cont.Cfg.Env, Addr: cont.Cfg.Addr,
 		AppURL: cont.Cfg.AppURL, RedisAddr: cont.Cfg.RedisAddr, Secret: cont.Cfg.SessionSecret,
-		InboundKey:   cont.Cfg.InboundKey,
+		InboundKey: cont.Cfg.InboundKey, MaxSearches: cont.Cfg.MaxConcurrentSearches,
+		SearchWorkers: cont.Cfg.SearchProcessWorkers,
+		HasGoogleKey:  os.Getenv("GOOGLE_PLACES_API_KEY") != "",
+		CrawlGlobal:   cont.Cfg.CrawlerGlobalWorkers,
+		BrowserOn:     cont.Cfg.BrowserEnabled, BrowserWorkers: cont.Cfg.BrowserWorkers,
 		CrawlWorkers: cont.Cfg.CrawlerWorkers, CrawlDomain: cont.Cfg.CrawlerDomainConcurrency,
 		CrawlTimeout: cont.Cfg.CrawlerTimeout.String(), CrawlMaxPages: cont.Cfg.CrawlerMaxPagesPerSite,
 		CrawlMaxDepth: cont.Cfg.CrawlerMaxDepth,
@@ -51,6 +55,7 @@ func main() {
 	ws.Queue = queue.NewClient(cont.Cfg.RedisAddr)
 	defer ws.Queue.Close()
 	ws.Runner = search.NewRunner(search.NewDeps(cont.PG, cont.Cfg, cont.Log, os.Getenv("GOOGLE_PLACES_API_KEY")))
+	ws.Crawler = ws.Runner.Manager()
 
 	srv := &http.Server{
 		Addr:              cont.Cfg.Addr,

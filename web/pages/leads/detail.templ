@@ -158,6 +158,12 @@ templ detailActions(p PageMeta, d *DetailData) {
 		<a href={ templ.URL("/deals/new?lead=" + d.ID) } class="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-brand-600 text-white text-[13px] font-medium hover:bg-brand-700">
 			@components.Icon("plus", "w-3.5 h-3.5") Add Deal
 		</a>
+		<form method="post" action={ templ.URL("/leads/" + d.ID + "/refresh") } class="inline">
+			<input type="hidden" name="_token" value={ p.CSRFToken }/>
+			<button class="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-white border border-line text-[13px] font-medium hover:bg-[#f6f7fb]">
+				@components.Icon("refresh-cw", "w-3.5 h-3.5") Refresh
+			</button>
+		</form>
 	</div>
 }
 

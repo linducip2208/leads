@@ -108,8 +108,7 @@ func (s *Server) loadLeadDetail(r *http.Request, leadID string) (*leads.DetailDa
 		}
 	}
 	// enrichments
-	erows, _ := s.PG.Query(r.Context(), `
-		SELECT kind, status, data, to_char(created_at,'DD Mon HH24:MI')
+	erows, _ := s.PG.Query(r.Context(), `		SELECT kind, status, data, to_char(created_at,'DD Mon HH24:MI')
 		FROM lead_enrichments WHERE tenant_id=$1 AND company_id=$2 ORDER BY created_at DESC LIMIT 5`, id.TenantID, d.CompanyID)
 	if erows != nil {
 		defer erows.Close()
@@ -126,6 +125,19 @@ func (s *Server) loadLeadDetail(r *http.Request, leadID string) (*leads.DetailDa
 					}
 				}
 				d.Enrichments = append(d.Enrichments, e)
+			}
+		}
+	}
+	orows, _ := s.PG.Query(r.Context(), `
+		SELECT ps.name, lo.score, lo.reason
+		FROM lead_opportunities lo JOIN products_services ps ON ps.id = lo.product_id
+		WHERE lo.lead_id=$1 ORDER BY lo.score DESC`, d.ID)
+	if orows != nil {
+		defer orows.Close()
+		for orows.Next() {
+			var o leads.OppRow
+			if err := orows.Scan(&o.Title, &o.Confidence, &o.Reason); err == nil {
+				d.Opportunities = append(d.Opportunities, o)
 			}
 		}
 	}
@@ -183,6 +195,26 @@ func (s *Server) handleLeadUpdate(w http.ResponseWriter, r *http.Request) {
 	webapp.RedirectFlash(w, r, "/leads/"+leadID, flash.Success, "Lead updated.")
 }
 
+func (s *Server) handleLeadRefresh(w http.ResponseWriter, r *http.Request) {
+	id := webappIdentity(r)
+	leadID := r.PathValue("id")
+	var exists bool
+	_ = s.PG.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM leads WHERE id=$1 AND tenant_id=$2)`, leadID, id.TenantID).Scan(&exists)
+	if !exists {
+		s.renderError(w, r, webapp.ErrNotFound)
+		return
+	}
+	if s.Queue == nil {
+		webapp.RedirectFlash(w, r, "/leads/"+leadID, flash.Error, "Queue unavailable.")
+		return
+	}
+	if err := s.Queue.EnqueueLeadRefresh(r.Context(), leadID); err != nil {
+		webapp.RedirectFlash(w, r, "/leads/"+leadID, flash.Error, "Could not queue the refresh.")
+		return
+	}
+	webapp.RedirectFlash(w, r, "/leads/"+leadID, flash.Success, "Refresh queued — data updates shortly.")
+}
+
 func (s *Server) handleLeadBulk(w http.ResponseWriter, r *http.Request) {
 	id := webappIdentity(r)
 	if err := r.ParseForm(); err != nil {
@@ -203,6 +235,18 @@ func (s *Server) handleLeadBulk(w http.ResponseWriter, r *http.Request) {
 	}
 	action := r.FormValue("action")
 	listID := strings.TrimSpace(r.FormValue("list_id"))
+	if action == "refresh" {
+		if s.Queue == nil {
+			webapp.RedirectFlash(w, r, redirect, flash.Error, "Queue unavailable.")
+			return
+		}
+		if err := s.Queue.EnqueueLeadBulkRefresh(r.Context(), ids); err != nil {
+			webapp.RedirectFlash(w, r, redirect, flash.Error, "Could not queue the refresh.")
+			return
+		}
+		webapp.RedirectFlash(w, r, redirect, flash.Success, "Bulk refresh queued.")
+		return
+	}
 	switch action {
 	case "archive", "restore", "status_qualified", "status_contacted", "status_new":
 		status := strings.TrimPrefix(action, "status_")

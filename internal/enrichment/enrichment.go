@@ -79,7 +79,10 @@ func (p *WebsiteProvider) EnrichCompany(ctx context.Context, in CompanyInput) (C
 	out.Facebook = d.Socials["facebook"]
 	out.X = d.Socials["x"]
 	out.YouTube = d.Socials["youtube"]
-	out.Technologies = d.Technologies
+	out.Technologies = nil
+	for _, t := range d.Technologies {
+		out.Technologies = append(out.Technologies, t.Name)
+	}
 	filled := 0
 	for _, v := range []string{out.Name, out.Description, out.Email, out.Phone, out.Address} {
 		if v != "" {

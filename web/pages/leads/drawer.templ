@@ -76,6 +76,18 @@ templ drawerBody(p PageMeta, d *DetailData) {
 				}
 			</div>
 		}
+		if len(d.Opportunities) > 0 {
+			<div>
+				@components.SectionTitle("Opportunity")
+				for _, o := range d.Opportunities {
+					<div class="rounded-lg border border-brand-200 bg-brand-50/60 p-2.5">
+						<div class="text-[13px] font-medium">{ o.Title }</div>
+						<div class="text-[11.5px] text-ink-2">Confidence { itoa(o.Confidence) }%</div>
+						<div class="mt-0.5 text-[12px] text-ink-3">{ o.Reason }</div>
+					</div>
+				}
+			</div>
+		}
 		<a href={ templ.URL("/leads/" + d.ID) } class="inline-flex w-full justify-center items-center h-9 rounded-lg bg-ink text-white text-[13px] font-medium">
 			View Company @components.Icon("arrow-right", "w-3.5 h-3.5")
 		</a>

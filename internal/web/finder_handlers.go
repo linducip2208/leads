@@ -22,8 +22,39 @@ func (s *Server) finderRoutes() {
 func finderDefaults() finder.FormData {
 	return finder.FormData{
 		Country: "Indonesia", ResultLimit: 100,
-		Sources: []string{"website_search", "public_directory"},
+		Sources: []string{"auto"},
 	}
+}
+
+func (s *Server) finderSourceOpts(r *http.Request) []finder.SourceOpt {
+	tid := webappIdentity(r).TenantID
+	var tenantKey bool
+	_ = s.PG.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM lead_sources WHERE tenant_id=$1 AND slug='google_places' AND config IS NOT NULL)`, tid).Scan(&tenantKey)
+	googleOK := tenantKey || s.Cfg.HasGoogleKey
+	dis := func(slug string) bool {
+		var off bool
+		_ = s.PG.QueryRow(r.Context(), `SELECT NOT is_active FROM lead_sources WHERE tenant_id=$1 AND slug=$2`, tid, slug).Scan(&off)
+		return off
+	}
+	mk := func(slug, label, desc, status string) finder.SourceOpt {
+		if dis(slug) {
+			status = "off"
+		}
+		return finder.SourceOpt{Value: slug, Label: label, Description: desc, Status: status}
+	}
+	return []finder.SourceOpt{
+		mk("google_places", "Google Places", "Official business data with websites and phones.", ternary(googleOK, "ready", "needs_key")),
+		mk("public_directory", "Business Directory", "OpenStreetMap places — names, addresses, phones.", "ready"),
+		mk("website_search", "Web Search", "Keyless discovery of company websites.", "ready"),
+		mk("manual", "Manual URLs", "Seed URLs below are always crawled when pasted.", "ready"),
+	}
+}
+
+func ternary(ok bool, a, b string) string {
+	if ok {
+		return a
+	}
+	return b
 }
 
 func (s *Server) handleFinder(w http.ResponseWriter, r *http.Request) {
@@ -31,7 +62,7 @@ func (s *Server) handleFinder(w http.ResponseWriter, r *http.Request) {
 	layouts.AppShell(s.Ren, webappIdentity(r), p, finder.Page(p, &finder.PageData{
 		ICPs:    s.icpOptions(r),
 		Limits:  finderLimits(),
-		Sources: finderSources(),
+		Sources: s.finderSourceOpts(r),
 		Form:    finderDefaults(),
 	})).Render(r.Context(), w)
 }
@@ -72,7 +103,7 @@ func (s *Server) handleFinderSearch(w http.ResponseWriter, r *http.Request) {
 		form.Error = msg
 		p := s.page(w, r, "Lead Finder", "/finder")
 		layouts.AppShell(s.Ren, webappIdentity(r), p, finder.Page(p, &finder.PageData{
-			ICPs: s.icpOptions(r), Limits: finderLimits(), Sources: finderSources(), Form: form,
+			ICPs: s.icpOptions(r), Limits: finderLimits(), Sources: s.finderSourceOpts(r), Form: form,
 		})).Render(r.Context(), w)
 	}
 
@@ -96,6 +127,12 @@ func (s *Server) handleFinderSearch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	id := webappIdentity(r)
+	var active int
+	_ = s.PG.QueryRow(r.Context(), `SELECT COUNT(*) FROM lead_searches WHERE tenant_id=$1 AND status IN ('queued','running','paused')`, id.TenantID).Scan(&active)
+	if active >= s.Cfg.MaxSearches {
+		fail("Too many concurrent searches. Wait for one to finish or cancel it.")
+		return
+	}
 	filters := search.Filters{
 		Country: form.Country, Province: form.Province, City: form.City,
 		CompanySize: form.CompanySize, HasWebsite: form.HasWebsite, HasEmail: form.HasEmail,
@@ -189,13 +226,6 @@ func finderLimits() []finder.Option {
 		{Value: "5000", Label: "5,000"},
 		{Value: "10000", Label: "10,000"},
 		{Value: "50000", Label: "50,000"},
-	}
-}
-
-func finderSources() []finder.Option {
-	return []finder.Option{
-		{Value: "website_search", Label: "Web search discovery"},
-		{Value: "public_directory", Label: "Public directory (OpenStreetMap)"},
 	}
 }
 

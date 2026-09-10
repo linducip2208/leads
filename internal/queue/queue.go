@@ -14,11 +14,14 @@ import (
 
 // Task types.
 const (
-	TypeSearchRun    = "search:run"
-	TypeSweep        = "maintenance:sweep"
-	TypeWatchdog     = "maintenance:watchdog"
-	TypeOutreachTick = "outreach:tick"
-	TypeOutreachSend = "outreach:send"
+	TypeSearchRun       = "search:run"
+	TypeSweep           = "maintenance:sweep"
+	TypeWatchdog        = "maintenance:watchdog"
+	TypeOutreachTick    = "outreach:tick"
+	TypeOutreachSend    = "outreach:send"
+	TypeLeadRefresh     = "lead:refresh"
+	TypeLeadBulkRefresh = "lead:bulk-refresh"
+	TypeRefreshStale    = "maintenance:refresh-stale"
 )
 
 // Queue names.
@@ -45,6 +48,16 @@ type SearchPayload struct {
 // OutreachPayload sends due emails for one campaign.
 type OutreachPayload struct {
 	CampaignID string `json:"campaign_id"`
+}
+
+// RefreshPayload refreshes one lead.
+type RefreshPayload struct {
+	LeadID string `json:"lead_id"`
+}
+
+// BulkRefreshPayload refreshes up to 100 leads.
+type BulkRefreshPayload struct {
+	LeadIDs []string `json:"lead_ids"`
 }
 
 // RedisOpt builds asynq redis options from an address.
@@ -100,6 +113,32 @@ func (cl *Client) EnqueueOutreachSend(ctx context.Context, campaignID string) er
 	_, err := cl.c.EnqueueContext(ctx, asynq.NewTask(TypeOutreachSend, body),
 		asynq.Queue(QOutreach), asynq.MaxRetry(2), asynq.Timeout(30*time.Minute),
 		asynq.Unique(5*time.Minute))
+	return err
+}
+
+// EnqueueLeadRefresh queues a single lead refresh.
+func (cl *Client) EnqueueLeadRefresh(ctx context.Context, leadID string) error {
+	body, _ := json.Marshal(RefreshPayload{LeadID: leadID})
+	_, err := cl.c.EnqueueContext(ctx, asynq.NewTask(TypeLeadRefresh, body),
+		asynq.Queue(QEnrichment), asynq.MaxRetry(2), asynq.Timeout(10*time.Minute))
+	return err
+}
+
+// EnqueueLeadBulkRefresh queues a bounded bulk refresh.
+func (cl *Client) EnqueueLeadBulkRefresh(ctx context.Context, ids []string) error {
+	if len(ids) > 100 {
+		ids = ids[:100]
+	}
+	body, _ := json.Marshal(BulkRefreshPayload{LeadIDs: ids})
+	_, err := cl.c.EnqueueContext(ctx, asynq.NewTask(TypeLeadBulkRefresh, body),
+		asynq.Queue(QEnrichment), asynq.MaxRetry(1), asynq.Timeout(2*time.Hour))
+	return err
+}
+
+// EnqueueRefreshStale queues the stale-hot-lead sweep.
+func (cl *Client) EnqueueRefreshStale(ctx context.Context) error {
+	_, err := cl.c.EnqueueContext(ctx, asynq.NewTask(TypeRefreshStale, nil),
+		asynq.Queue(QMaintenance), asynq.MaxRetry(1), asynq.Unique(20*time.Hour))
 	return err
 }
 

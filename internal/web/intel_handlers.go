@@ -65,7 +65,11 @@ func (s *Server) handleScoring(w http.ResponseWriter, r *http.Request) {
 	layouts.AppShell(s.Ren, id, p, pageScoring.Page(p, d)).Render(r.Context(), w)
 }
 
-var validRuleOp = map[string]bool{"exists": true, "equals": true, "contains": true, "gte": true, "lte": true, "in": true}
+var validRuleOp = map[string]bool{
+	"exists": true, "not_exists": true, "equals": true, "not_equals": true,
+	"contains": true, "not_contains": true, "in": true, "not_in": true,
+	"gte": true, "greater_than": true, "lte": true, "less_than": true,
+}
 
 func (s *Server) handleScoringCreate(w http.ResponseWriter, r *http.Request) {
 	id := webappIdentity(r)

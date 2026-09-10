@@ -25,10 +25,11 @@ type SiteConfig struct {
 
 // SiteResult is the merged outcome of crawling one start URL.
 type SiteResult struct {
-	Data   *Extracted
-	Pages  int
-	Failed int
-	Errors []string
+	Data     *Extracted
+	Pages    int
+	Failed   int
+	Errors   []string
+	FinalURL string // after redirects
 }
 
 // CrawlSite crawls startURL (same site only) with colly: bounded pages/depth,
@@ -62,23 +63,8 @@ func CrawlSite(ctx context.Context, g Guard, robots *RobotsChecker, startURL str
 	var mu sync.Mutex
 	visited := map[string]bool{}
 	attempts := map[string]int{}
+	pendingRetry := map[string]bool{}
 	var pages, failed int32
-
-	c := colly.NewCollector(
-		colly.Async(true),
-		colly.MaxDepth(cfg.MaxDepth),
-		colly.UserAgent(cfg.UserAgent),
-	)
-	c.AllowURLRevisit = true // own visited-set below (needed for retries)
-	c.IgnoreRobotsTxt = false
-	c.SetRequestTimeout(cfg.Timeout)
-	c.WithTransport(GuardedTransport(g, cfg.MaxBody))
-	_ = c.Limit(&colly.LimitRule{
-		DomainGlob:  "*",
-		Parallelism: cfg.DomainConc,
-		Delay:       400 * time.Millisecond,
-		RandomDelay: 400 * time.Millisecond,
-	})
 
 	sameSite := func(raw string) string {
 		u, err := url.Parse(raw)
@@ -93,82 +79,145 @@ func CrawlSite(ctx context.Context, g Guard, robots *RobotsChecker, startURL str
 		return u.String()
 	}
 
-	c.OnRequest(func(r *colly.Request) {
-		if ctx.Err() != nil || (cfg.Stop != nil && cfg.Stop.Load()) {
-			r.Abort()
-			return
-		}
-		norm := sameSite(r.URL.String())
-		if norm == "" {
-			r.Abort()
-			return
-		}
-		mu.Lock()
-		if visited[norm] || int(pages+failed) >= cfg.MaxPages {
+	newCollector := func() *colly.Collector {
+		c := colly.NewCollector(
+			colly.Async(true),
+			colly.MaxDepth(cfg.MaxDepth),
+			colly.UserAgent(cfg.UserAgent),
+		)
+		c.AllowURLRevisit = true // own visited-set below (needed for retries)
+		c.IgnoreRobotsTxt = false
+		c.SetRequestTimeout(cfg.Timeout)
+		c.WithTransport(GuardedTransport(g, cfg.MaxBody))
+		_ = c.Limit(&colly.LimitRule{
+			DomainGlob:  "*",
+			Parallelism: cfg.DomainConc,
+			Delay:       400 * time.Millisecond,
+			RandomDelay: 400 * time.Millisecond,
+		})
+
+		c.OnRequest(func(r *colly.Request) {
+			if ctx.Err() != nil || (cfg.Stop != nil && cfg.Stop.Load()) {
+				r.Abort()
+				return
+			}
+			norm := sameSite(r.URL.String())
+			if norm == "" {
+				r.Abort()
+				return
+			}
+			mu.Lock()
+			if visited[norm] || int(pages+failed) >= cfg.MaxPages {
+				mu.Unlock()
+				r.Abort()
+				return
+			}
+			visited[norm] = true
+			delete(pendingRetry, norm)
 			mu.Unlock()
-			r.Abort()
-			return
-		}
-		visited[norm] = true
-		mu.Unlock()
-	})
+		})
 
-	c.OnHTML("a[href]", func(e *colly.HTMLElement) {
+		c.OnHTML("a[href]", func(e *colly.HTMLElement) {
+			if ctx.Err() != nil || (cfg.Stop != nil && cfg.Stop.Load()) {
+				return
+			}
+			link := e.Request.AbsoluteURL(e.Attr("href"))
+			if sameSite(link) == "" {
+				return
+			}
+			if skipPath(linkPath(link)) || linkScore(linkPath(link)) <= 0 {
+				return
+			}
+			mu.Lock()
+			over := int(pages+failed) >= cfg.MaxPages
+			mu.Unlock()
+			if over {
+				return
+			}
+			_ = e.Request.Visit(link)
+		})
+
+		// skip huge / non-HTML payloads before they are read
+		c.OnResponseHeaders(func(r *colly.Response) {
+			if r.Headers == nil {
+				return
+			}
+			if !acceptableContent(r.Headers.Get("Content-Type")) {
+				r.Request.Abort()
+			}
+		})
+
+		c.OnResponse(func(r *colly.Response) {
+			mu.Lock()
+			if res.FinalURL == "" {
+				res.FinalURL = r.Request.URL.String()
+			}
+			mu.Unlock()
+			part := Extract(r.Request.URL.String(), r.Body)
+			mu.Lock()
+			res.Data.Merge(part)
+			mu.Unlock()
+			atomic.AddInt32(&pages, 1)
+		})
+
+		c.OnError(func(r *colly.Response, err error) {
+			u := r.Request.URL.String()
+			norm := sameSite(u)
+			code := 0
+			if r != nil {
+				code = r.StatusCode
+			}
+			mu.Lock()
+			attempts[u]++
+			n := attempts[u]
+			if n <= 3 && retryableStatus(code) && norm != "" {
+				// schedule retry in the next round (re-Visit inside
+				// callbacks is unreliable); free the visited slot
+				delete(visited, norm)
+				pendingRetry[norm] = true
+				mu.Unlock()
+				return
+			}
+			res.Errors = append(res.Errors, u+": "+err.Error())
+			mu.Unlock()
+			atomic.AddInt32(&failed, 1)
+		})
+		return c
+	}
+
+	// rounds: initial crawl + up to 2 retry rounds (1s/3s/7s backoff)
+	pending := []string{start.String()}
+	for round := 0; round < 3 && len(pending) > 0; round++ {
+		if round > 0 {
+			d := retryDelays[round-1] + time.Duration(randInt63n(400))*time.Millisecond
+			t := time.NewTimer(d)
+			select {
+			case <-ctx.Done():
+				t.Stop()
+				pending = nil
+			case <-t.C:
+			}
+		}
 		if ctx.Err() != nil || (cfg.Stop != nil && cfg.Stop.Load()) {
-			return
+			break
 		}
-		link := e.Request.AbsoluteURL(e.Attr("href"))
-		if sameSite(link) == "" {
-			return
+		c := newCollector()
+		for _, u := range pending {
+			_ = c.Visit(u)
 		}
-		mu.Lock()
-		over := int(pages+failed) >= cfg.MaxPages
-		mu.Unlock()
-		if over {
-			return
-		}
-		_ = e.Request.Visit(link)
-	})
-
-	c.OnResponse(func(r *colly.Response) {
-		ct := r.Headers.Get("Content-Type")
-		if ct != "" && !strings.Contains(ct, "html") && !strings.Contains(ct, "text") {
-			return
-		}
-		part := Extract(r.Request.URL.String(), r.Body)
-		mu.Lock()
-		res.Data.Merge(part)
-		mu.Unlock()
-		atomic.AddInt32(&pages, 1)
-	})
-
-	c.OnError(func(r *colly.Response, err error) {
-		u := r.Request.URL.String()
-		mu.Lock()
-		attempts[u]++
-		n := attempts[u]
-		mu.Unlock()
-		code := 0
-		if r != nil {
-			code = r.StatusCode
-		}
-		if n < 3 && retryable(HTTPStatusError(code)) && ctx.Err() == nil && (cfg.Stop == nil || !cfg.Stop.Load()) {
-			time.Sleep(time.Duration(n) * 600 * time.Millisecond)
-			_ = r.Request.Visit(u)
-			return
+		done := make(chan struct{})
+		go func() { c.Wait(); close(done) }()
+		select {
+		case <-ctx.Done():
+		case <-done:
 		}
 		mu.Lock()
-		res.Errors = append(res.Errors, u+": "+err.Error())
+		pending = pending[:0]
+		for u := range pendingRetry {
+			pending = append(pending, u)
+		}
+		pendingRetry = map[string]bool{}
 		mu.Unlock()
-		atomic.AddInt32(&failed, 1)
-	})
-
-	_ = c.Visit(start.String())
-	done := make(chan struct{})
-	go func() { c.Wait(); close(done) }()
-	select {
-	case <-ctx.Done():
-	case <-done:
 	}
 	res.Pages = int(pages)
 	res.Failed = int(failed)

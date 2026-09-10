@@ -90,10 +90,38 @@ func main() {
 		cont.Log.Info("outreach batch done", "campaign", p.CampaignID, "sent", sent)
 		return nil
 	})
+	mux.HandleFunc(queue.TypeLeadRefresh, func(ctx context.Context, t *asynq.Task) error {
+		var p queue.RefreshPayload
+		if err := json.Unmarshal(t.Payload(), &p); err != nil || p.LeadID == "" {
+			return nil
+		}
+		return runner.RefreshLead(ctx, p.LeadID)
+	})
+	mux.HandleFunc(queue.TypeLeadBulkRefresh, func(ctx context.Context, t *asynq.Task) error {
+		var p queue.BulkRefreshPayload
+		if err := json.Unmarshal(t.Payload(), &p); err != nil {
+			return nil
+		}
+		for _, id := range p.LeadIDs {
+			if err := runner.RefreshLead(ctx, id); err != nil {
+				cont.Log.Warn("bulk refresh item failed", "lead", id, "err", err)
+			}
+		}
+		return nil
+	})
+	mux.HandleFunc(queue.TypeRefreshStale, func(ctx context.Context, _ *asynq.Task) error {
+		n := runner.RefreshStale(ctx, 50)
+		cont.Log.Info("stale refresh done", "refreshed", n)
+		return nil
+	})
 	mux.HandleFunc(queue.TypeWatchdog, func(ctx context.Context, _ *asynq.Task) error {
+		staleMin := cont.Cfg.WatchdogStaleMinutes
+		if staleMin <= 0 {
+			staleMin = 15
+		}
 		res, err := cont.PG.Exec(ctx, `
 			UPDATE lead_searches SET status='failed', error='worker lost (watchdog)', finished_at=now(), updated_at=now()
-			WHERE status='running' AND updated_at < now() - interval '30 minutes'`)
+			WHERE status='running' AND COALESCE(last_heartbeat, updated_at, started_at) < now() - (make_interval(mins => $1))`, staleMin)
 		if err == nil && res.RowsAffected() > 0 {
 			cont.Log.Warn("watchdog marked stalled searches failed", "n", res.RowsAffected())
 		}

@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"leadforge/internal/crawler"
+	"leadforge/internal/crypto"
 	"leadforge/internal/enrichment"
 	"leadforge/internal/platform/config"
 	"leadforge/internal/scoring"
@@ -62,28 +64,72 @@ type Deps struct {
 	Log      *slog.Logger
 	Guard    crawler.Guard
 	Robots   *crawler.RobotsChecker
+	Crawler  *crawler.Manager
 	Registry *source.Registry
 	Verifier verify.Verifier
 	Enricher enrichment.Provider
 }
 
+// SourceStat tracks per-source discovery telemetry for the search report.
+type SourceStat struct {
+	Candidates int
+	Accepted   int
+	Errors     int
+	LastError  string
+	DurationMs int64
+}
+
 // Job is one running search with live counters.
 type Job struct {
-	Search Row
-	Rules  []scoring.Rule
+	Search    Row
+	Rules     []scoring.Rule
+	GoogleKey string
+	SourceOff map[string]bool
 
-	found, saved, dup, crawled, enriched, qualified, failed atomic.Int64
+	found, saved, dup, crawled, enriched, qualified, failed  atomic.Int64
+	discovered, filtered, created, matched, contactable, hot atomic.Int64
 
 	seenMu sync.Mutex
 	seen   map[string]bool
 
-	srcMu   sync.Mutex
-	srcErrs []string
+	srcMu    sync.Mutex
+	srcErrs  []string
+	statMu   sync.Mutex
+	srcStats map[string]SourceStat
 
 	stop      atomic.Bool  // halt crawling (cancel/fatal)
 	lastCheck atomic.Int64 // unix nano of last status poll
 
 	deps *Deps
+}
+
+// bumpSrc records an accepted candidate for a source.
+func (j *Job) bumpSrc(slug string, accepted bool) {
+	j.statMu.Lock()
+	st := j.srcStats[slug]
+	st.Accepted++
+	if accepted {
+		// accepted into the pipeline (post seen-filter)
+	}
+	j.srcStats[slug] = st
+	j.statMu.Unlock()
+}
+
+// bumpSrcErr records a source-level error.
+func (j *Job) bumpSrcErr(slug, msg string) {
+	j.statMu.Lock()
+	st := j.srcStats[slug]
+	st.Errors++
+	st.LastError = truncErr(msg)
+	j.srcStats[slug] = st
+	j.statMu.Unlock()
+}
+
+func truncErr(s string) string {
+	if len(s) > 300 {
+		return s[:300]
+	}
+	return s
 }
 
 // Runner executes searches.
@@ -93,6 +139,9 @@ type Runner struct {
 
 // NewRunner builds a runner.
 func NewRunner(d *Deps) *Runner { return &Runner{deps: d} }
+
+// Manager exposes the crawler manager (metrics, cooldowns) for admin views.
+func (r *Runner) Manager() *crawler.Manager { return r.deps.Crawler }
 
 // NewDeps builds pipeline dependencies shared by server, worker and tests.
 func NewDeps(pool *pgxpool.Pool, cfg *config.Config, log *slog.Logger, googleAPIKey string) *Deps {
@@ -104,17 +153,29 @@ func NewDeps(pool *pgxpool.Pool, cfg *config.Config, log *slog.Logger, googleAPI
 	return &Deps{
 		Pool: pool, Cfg: cfg, Log: log,
 		Guard: guard, Robots: robots,
+		Crawler:  crawler.NewManager(cfg, pool),
 		Registry: source.DefaultRegistry(googleAPIKey),
 		Verifier: verify.SyntaxVerifier{},
 		Enricher: &enrichment.WebsiteProvider{Guard: guard, Robots: robots, Cfg: cfg},
 	}
 }
 
-// Load reads the search row + tenant scoring rules.
+// workerID identifies this worker process for heartbeats.
+func workerID() string {
+	h, _ := os.Hostname()
+	if h == "" {
+		h = "worker"
+	}
+	return h + "-" + itoa(os.Getpid())
+}
+
+// Load reads the search row + tenant scoring rules + source credentials.
 func (r *Runner) Load(ctx context.Context, searchID string) (*Job, error) {
 	var j Job
 	j.deps = r.deps
 	j.seen = map[string]bool{}
+	j.srcStats = map[string]SourceStat{}
+	j.SourceOff = map[string]bool{}
 	var filtersRaw []byte
 	err := r.deps.Pool.QueryRow(ctx, `
 		SELECT id::text, tenant_id::text, user_id::text,
@@ -138,15 +199,45 @@ func (r *Runner) Load(ctx context.Context, searchID string) (*Job, error) {
 	if err == nil {
 		j.Rules = rules
 	}
+	// tenant source prefs: encrypted keys + enabled flags from lead_sources
+	rows, err := r.deps.Pool.Query(ctx, `SELECT slug, is_active, config FROM lead_sources WHERE tenant_id=$1`, j.Search.TenantID)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var slug string
+			var active bool
+			var cfgRaw []byte
+			if err := rows.Scan(&slug, &active, &cfgRaw); err != nil {
+				continue
+			}
+			if !active {
+				j.SourceOff[slug] = true
+			}
+			if slug == "google_places" && len(cfgRaw) > 0 {
+				var cfg map[string]string
+				if json.Unmarshal(cfgRaw, &cfg) == nil {
+					if enc, ok := cfg["api_key_enc"]; ok && enc != "" {
+						if key, err := crypto.Decrypt(r.deps.Cfg.SessionSecret, enc); err == nil {
+							j.GoogleKey = key
+						}
+					} else if k, ok := cfg["api_key"]; ok {
+						j.GoogleKey = k
+					}
+				}
+			}
+		}
+	}
 	return &j, nil
 }
 
-// Claim marks a queued search running (idempotent-ish: only from queued).
+// Claim marks a queued search running with attempt + worker tracking.
 func (r *Runner) Claim(ctx context.Context, j *Job) bool {
+	wid := workerID()
 	var ok bool
 	_ = r.deps.Pool.QueryRow(ctx, `
-		UPDATE lead_searches SET status='running', started_at=COALESCE(started_at, now()), updated_at=now()
-		WHERE id=$1 AND status='queued' RETURNING true`, j.Search.ID).Scan(&ok)
+		UPDATE lead_searches SET status='running', started_at=COALESCE(started_at, now()),
+			run_attempt=run_attempt+1, worker_id=$2, last_heartbeat=now(), updated_at=now()
+		WHERE id=$1 AND status='queued' RETURNING true`, j.Search.ID, wid).Scan(&ok)
 	if ok {
 		j.Search.Status = "running"
 	}
@@ -172,7 +263,7 @@ func (r *Runner) Control(ctx context.Context, j *Job) string {
 }
 
 // WaitWhilePaused blocks during pause (flushing counters), returning false if
-// the search was cancelled underneath.
+// the search was cancelled underneath. In-flight candidates may finish.
 func (r *Runner) WaitWhilePaused(ctx context.Context, j *Job) bool {
 	for {
 		r.Flush(ctx, j)
@@ -191,17 +282,36 @@ func (r *Runner) WaitWhilePaused(ctx context.Context, j *Job) bool {
 	}
 }
 
-// Flush writes counters to the search row (keeps watchdog + UI fresh).
+// Flush writes counters + heartbeat + source stats to the search row.
 func (r *Runner) Flush(ctx context.Context, j *Job) {
 	_, _ = r.deps.Pool.Exec(ctx, `
 		UPDATE lead_searches SET found_count=$2, saved_count=$3, duplicate_count=$4,
 			crawled_count=$5, enriched_count=$6, qualified_count=$7, failed_count=$8,
-			updated_at=now() WHERE id=$1`,
+			discovered_count=$9, companies_created=$10, companies_matched=$11,
+			contactable_count=$12, hot_count=$13, filtered_count=$14,
+			last_heartbeat=now(), updated_at=now() WHERE id=$1`,
 		j.Search.ID, j.found.Load(), j.saved.Load(), j.dup.Load(),
-		j.crawled.Load(), j.enriched.Load(), j.qualified.Load(), j.failed.Load())
+		j.crawled.Load(), j.enriched.Load(), j.qualified.Load(), j.failed.Load(),
+		j.discovered.Load(), j.created.Load(), j.matched.Load(),
+		j.contactable.Load(), j.hot.Load(), j.filtered.Load())
+	j.statMu.Lock()
+	stats := make(map[string]SourceStat, len(j.srcStats))
+	for k, v := range j.srcStats {
+		stats[k] = v
+	}
+	j.statMu.Unlock()
+	for slug, st := range stats {
+		_, _ = r.deps.Pool.Exec(ctx, `
+			INSERT INTO search_source_stats (search_id, source_slug, candidates, accepted, errors, last_error, duration_ms)
+			VALUES ($1,$2,$3,$4,$5,$6,$7)
+			ON CONFLICT (search_id, source_slug) DO UPDATE SET
+				candidates=EXCLUDED.candidates, accepted=EXCLUDED.accepted, errors=EXCLUDED.errors,
+				last_error=EXCLUDED.last_error, duration_ms=EXCLUDED.duration_ms`,
+			j.Search.ID, slug, st.Candidates, st.Accepted, st.Errors, st.LastError, st.DurationMs)
+	}
 }
 
-// Finish closes the search with a terminal status.
+// Finish closes the search with a terminal status + usage + metrics.
 func (r *Runner) Finish(ctx context.Context, j *Job, status, errMsg string) {
 	r.Flush(ctx, j)
 	_, _ = r.deps.Pool.Exec(ctx, `
@@ -210,7 +320,15 @@ func (r *Runner) Finish(ctx context.Context, j *Job, status, errMsg string) {
 			updated_at=now() WHERE id=$1`, j.Search.ID, status, errMsg)
 	_, _ = r.deps.Pool.Exec(ctx, `
 		INSERT INTO usage_events (tenant_id, user_id, kind, quantity, meta)
-		VALUES ($1,$2,'search',1,$3)`, j.Search.TenantID, nullUUID(j.Search.UserID), "{"+`"search_id":"`+j.Search.ID+`","status":"`+status+`"`+"}")
+		VALUES ($1,$2,'search',1,$3)`, j.Search.TenantID, nullUUID(j.Search.UserID), `{"search_id":"`+j.Search.ID+`","status":"`+status+`"}`)
+	_, _ = r.deps.Pool.Exec(ctx, `
+		INSERT INTO usage_events (tenant_id, user_id, kind, quantity, meta)
+		VALUES ($1,$2,'crawl',$3,$4)`, j.Search.TenantID, nullUUID(j.Search.UserID),
+		j.crawled.Load(), `{"search_id":"`+j.Search.ID+`"}`)
+	_, _ = r.deps.Pool.Exec(ctx, `
+		INSERT INTO usage_events (tenant_id, user_id, kind, quantity, meta)
+		VALUES ($1,$2,'enrichment',$3,$4)`, j.Search.TenantID, nullUUID(j.Search.UserID),
+		j.enriched.Load(), `{"search_id":"`+j.Search.ID+`"}`)
 	_, _ = r.deps.Pool.Exec(ctx, `
 		INSERT INTO crawler_metrics (window_s, pages, success, failed, avg_ms)
 		SELECT COALESCE(EXTRACT(EPOCH FROM (now()-s.started_at)),0)::int, $2, $3, $4, 0
@@ -228,27 +346,36 @@ func nullUUID(s string) any {
 
 // Progress returns a snapshot for SSE/UI.
 type Progress struct {
-	Status    string `json:"status"`
-	Found     int64  `json:"found"`
-	Saved     int64  `json:"saved"`
-	Duplicate int64  `json:"duplicate"`
-	Crawled   int64  `json:"crawled"`
-	Enriched  int64  `json:"enriched"`
-	Qualified int64  `json:"qualified"`
-	Failed    int64  `json:"failed"`
-	Limit     int    `json:"limit"`
-	Error     string `json:"error,omitempty"`
+	Status      string `json:"status"`
+	Discovered  int64  `json:"discovered"`
+	Found       int64  `json:"found"`
+	Saved       int64  `json:"saved"`
+	Duplicate   int64  `json:"duplicate"`
+	Created     int64  `json:"created"`
+	Matched     int64  `json:"matched"`
+	Crawled     int64  `json:"crawled"`
+	Enriched    int64  `json:"enriched"`
+	Contactable int64  `json:"contactable"`
+	Qualified   int64  `json:"qualified"`
+	Hot         int64  `json:"hot"`
+	Filtered    int64  `json:"filtered"`
+	Failed      int64  `json:"failed"`
+	Limit       int    `json:"limit"`
+	Error       string `json:"error,omitempty"`
 }
 
 // Snapshot reads live progress.
 func Snapshot(ctx context.Context, pool *pgxpool.Pool, tenantID, searchID string) (*Progress, error) {
 	var p Progress
 	err := pool.QueryRow(ctx, `
-		SELECT status, found_count, saved_count, duplicate_count, crawled_count,
-			enriched_count, qualified_count, failed_count, limit_count, COALESCE(error,'')
+		SELECT status, discovered_count, found_count, saved_count, duplicate_count,
+			companies_created, companies_matched, crawled_count, enriched_count,
+			contactable_count, qualified_count, hot_count, filtered_count,
+			failed_count, limit_count, COALESCE(error,'')
 		FROM lead_searches WHERE id=$1 AND tenant_id=$2`,
-		searchID, tenantID).Scan(&p.Status, &p.Found, &p.Saved, &p.Duplicate,
-		&p.Crawled, &p.Enriched, &p.Qualified, &p.Failed, &p.Limit, &p.Error)
+		searchID, tenantID).Scan(&p.Status, &p.Discovered, &p.Found, &p.Saved, &p.Duplicate,
+		&p.Created, &p.Matched, &p.Crawled, &p.Enriched, &p.Contactable,
+		&p.Qualified, &p.Hot, &p.Filtered, &p.Failed, &p.Limit, &p.Error)
 	if err != nil {
 		return nil, err
 	}

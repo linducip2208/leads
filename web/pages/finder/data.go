@@ -11,6 +11,15 @@ type Option struct {
 	Label string
 }
 
+// SourceOpt is a discovery source with live status.
+type SourceOpt struct {
+	Value       string
+	Label       string
+	Description string
+	Status      string // ready | needs_key | n/a
+	Hint        string
+}
+
 // FormData echoes the finder form with validation errors.
 type FormData struct {
 	Keyword     string
@@ -46,6 +55,6 @@ func (f FormData) HasSource(slug string) bool {
 type PageData struct {
 	ICPs    []Option
 	Limits  []Option
-	Sources []Option
+	Sources []SourceOpt
 	Form    FormData
 }

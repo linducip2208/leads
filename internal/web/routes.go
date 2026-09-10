@@ -21,6 +21,7 @@ func (s *Server) routes() {
 	s.campaignRoutes()
 	s.settingsRoutes()
 	s.analyticsRoutes()
+	s.exportRoutes()
 
 	// static
 	s.Router.MountPrefix("/static/", http.StripPrefix("/static/", s.staticHandler()))

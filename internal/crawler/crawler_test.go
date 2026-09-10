@@ -3,7 +3,11 @@ package crawler
 import (
 	"context"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
+
+	"leadforge/internal/fixsrv"
 )
 
 func TestGuardBlocksPrivate(t *testing.T) {
@@ -83,7 +87,10 @@ func TestExtractFixture(t *testing.T) {
 	}
 	found := false
 	for _, tech := range ex.Technologies {
-		if tech == "WordPress" {
+		if tech.Name == "WordPress" {
+			if tech.Evidence == "" {
+				t.Errorf("missing evidence for WordPress")
+			}
 			found = true
 		}
 	}
@@ -96,8 +103,94 @@ func TestExtractFixture(t *testing.T) {
 }
 
 func TestExtractParenAreaCode(t *testing.T) {
-	ex := Extract("https://x.co.id/", []byte(`<html><body><p>Telp: (022) 555-8899</p></body></html>`))
+	ex := Extract("https://x.co.id/", []byte(`<html><body><p>Telp: (021) 555-8899</p></body></html>`))
 	if len(ex.Phones) == 0 {
 		t.Fatalf("no phones from parenthesized area code")
+	}
+}
+
+func fixCfg() SiteConfig {
+	return SiteConfig{MaxPages: 5, MaxDepth: 2, Workers: 2, DomainConc: 2,
+		Timeout: 15 * time.Second, MaxBody: 5 << 20, UserAgent: "LeadForgeBot/1.0 test", Stop: &atomic.Bool{}}
+}
+
+func TestFixtureRedirectCanonical(t *testing.T) {
+	fx, err := fixsrv.New()
+	if err != nil {
+		t.Skipf("no loopback: %v", err)
+	}
+	defer fx.Close()
+	g := Guard{AllowPrivate: true}
+	res := CrawlSite(context.Background(), g, nil, fx.URL+"/redirect", fixCfg())
+	if res.Pages == 0 {
+		t.Fatalf("errors: %v", res.Errors)
+	}
+	if !strings.HasSuffix(res.FinalURL, "/co/acme") {
+		t.Fatalf("final url = %q", res.FinalURL)
+	}
+}
+
+func TestFixtureFlakyRetries(t *testing.T) {
+	fx, err := fixsrv.New()
+	if err != nil {
+		t.Skipf("no loopback: %v", err)
+	}
+	defer fx.Close()
+	g := Guard{AllowPrivate: true}
+	res := CrawlSite(context.Background(), g, nil, fx.URL+"/flaky", fixCfg())
+	if res.Pages == 0 {
+		t.Fatalf("429 should be retried to success: %v", res.Errors)
+	}
+	if len(res.Data.Emails) == 0 {
+		t.Fatalf("no emails after retry")
+	}
+}
+
+func TestFixture404NoRetryStorm(t *testing.T) {
+	fx, err := fixsrv.New()
+	if err != nil {
+		t.Skipf("no loopback: %v", err)
+	}
+	defer fx.Close()
+	g := Guard{AllowPrivate: true}
+	t0 := time.Now()
+	res := CrawlSite(context.Background(), g, nil, fx.URL+"/missing", fixCfg())
+	if res.Pages != 0 {
+		t.Fatalf("404 should yield no pages")
+	}
+	if time.Since(t0) > 10*time.Second {
+		t.Fatalf("404 retried too long: %v", time.Since(t0))
+	}
+}
+
+func TestFixtureJSShellDetected(t *testing.T) {
+	fx, err := fixsrv.New()
+	if err != nil {
+		t.Skipf("no loopback: %v", err)
+	}
+	defer fx.Close()
+	g := Guard{AllowPrivate: true}
+	res := CrawlSite(context.Background(), g, nil, fx.URL+"/js", fixCfg())
+	if !res.Data.JSRequired {
+		t.Fatalf("JS shell not detected (quality=%d)", QualityScore(res.Data, res.Pages))
+	}
+}
+
+func TestFixtureSmartDiscovery(t *testing.T) {
+	fx, err := fixsrv.New()
+	if err != nil {
+		t.Skipf("no loopback: %v", err)
+	}
+	defer fx.Close()
+	g := Guard{AllowPrivate: true}
+	res := CrawlSite(context.Background(), g, nil, fx.URL+"/co/beta", fixCfg())
+	if res.Pages < 2 {
+		t.Fatalf("expected homepage + contact/about, got %d (%v)", res.Pages, res.Errors)
+	}
+	if len(res.Data.Emails) == 0 {
+		t.Fatalf("no emails discovered across pages")
+	}
+	if q := QualityScore(res.Data, res.Pages); q < 40 {
+		t.Fatalf("quality too low: %d", q)
 	}
 }
