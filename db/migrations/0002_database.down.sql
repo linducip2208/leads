@@ -1,0 +1,24 @@
+-- reverse of 0002
+DROP TABLE IF EXISTS crawler_metrics;
+DROP TABLE IF EXISTS crawl_jobs;
+DROP TABLE IF EXISTS lead_opportunities;
+DROP TABLE IF EXISTS products_services;
+DROP TABLE IF EXISTS scoring_rules;
+DROP TABLE IF EXISTS icps;
+DROP TABLE IF EXISTS saved_views;
+DROP TABLE IF EXISTS segment_members;
+DROP TABLE IF EXISTS segments;
+DROP TABLE IF EXISTS list_leads;
+DROP TABLE IF EXISTS lists;
+DROP TABLE IF EXISTS lead_tags;
+DROP TABLE IF EXISTS tags;
+DROP TABLE IF EXISTS lead_enrichments;
+DROP TABLE IF EXISTS lead_scores;
+DROP TABLE IF EXISTS leads;
+DROP TABLE IF EXISTS raw_leads;
+DROP TABLE IF EXISTS saved_searches;
+DROP TABLE IF EXISTS lead_search_stats;
+DROP TABLE IF EXISTS lead_searches;
+DROP TABLE IF EXISTS lead_sources;
+DROP TABLE IF EXISTS contacts;
+DROP TABLE IF EXISTS companies;

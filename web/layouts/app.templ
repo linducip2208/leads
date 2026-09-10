@@ -1,0 +1,344 @@
+package layouts
+
+import (
+	"leadforge/internal/flash"
+	"leadforge/internal/webapp"
+	"leadforge/web/components"
+)
+
+// navItem describes a sidebar link.
+type navItem struct {
+	Label string
+	Href  string
+	Icon  string
+	Perm  string
+}
+
+type navGroup struct {
+	Label string
+	Items []navItem
+}
+
+func navGroups() []navGroup {
+	return []navGroup{
+		{Label: "", Items: []navItem{
+			{Label: "Dashboard", Href: "/", Icon: "layout-dashboard"},
+		}},
+		{Label: "Discover", Items: []navItem{
+			{Label: "Lead Finder", Href: "/finder", Icon: "compass", Perm: "search.create"},
+			{Label: "Search History", Href: "/searches", Icon: "history", Perm: "lead.read"},
+			{Label: "Saved Searches", Href: "/searches/saved", Icon: "bookmark", Perm: "lead.read"},
+			{Label: "Imports", Href: "/imports", Icon: "upload", Perm: "lead.create"},
+		}},
+		{Label: "Database", Items: []navItem{
+			{Label: "Leads", Href: "/leads", Icon: "database", Perm: "lead.read"},
+			{Label: "Companies", Href: "/companies", Icon: "building-2", Perm: "lead.read"},
+			{Label: "People", Href: "/people", Icon: "users", Perm: "lead.read"},
+			{Label: "Segments", Href: "/segments", Icon: "filter", Perm: "segment.manage"},
+			{Label: "Lists", Href: "/lists", Icon: "folder", Perm: "segment.manage"},
+		}},
+		{Label: "Sales", Items: []navItem{
+			{Label: "Pipeline", Href: "/pipeline", Icon: "kanban", Perm: "deal.manage"},
+			{Label: "Deals", Href: "/deals", Icon: "handshake", Perm: "deal.manage"},
+			{Label: "Tasks", Href: "/tasks", Icon: "check-square", Perm: "task.manage"},
+			{Label: "Activities", Href: "/activities", Icon: "activity", Perm: "lead.read"},
+		}},
+		{Label: "Engage", Items: []navItem{
+			{Label: "Campaigns", Href: "/campaigns", Icon: "megaphone", Perm: "campaign.create"},
+			{Label: "Sequences", Href: "/sequences", Icon: "list-checks", Perm: "campaign.create"},
+			{Label: "Templates", Href: "/templates", Icon: "mail", Perm: "campaign.create"},
+			{Label: "Inbox", Href: "/inbox", Icon: "inbox", Perm: "lead.read"},
+		}},
+		{Label: "Intelligence", Items: []navItem{
+			{Label: "Enrichment", Href: "/enrichment", Icon: "zap", Perm: "lead.read"},
+			{Label: "Lead Scoring", Href: "/scoring", Icon: "gauge", Perm: "lead.read"},
+			{Label: "ICP", Href: "/icp", Icon: "target", Perm: "lead.read"},
+			{Label: "AI Analysis", Href: "/ai", Icon: "brain", Perm: "ai.use"},
+		}},
+		{Label: "Analytics", Items: []navItem{
+			{Label: "Leads", Href: "/analytics/leads", Icon: "bar-chart-3", Perm: "lead.read"},
+			{Label: "Campaigns", Href: "/analytics/campaigns", Icon: "megaphone", Perm: "lead.read"},
+			{Label: "Sales", Href: "/analytics/sales", Icon: "trending-up", Perm: "deal.manage"},
+			{Label: "Sources", Href: "/analytics/sources", Icon: "radar", Perm: "lead.read"},
+		}},
+		{Label: "Settings", Items: []navItem{
+			{Label: "Workspace", Href: "/settings/workspace", Icon: "briefcase", Perm: "tenant.manage"},
+			{Label: "Members", Href: "/settings/members", Icon: "user-plus", Perm: "team.manage"},
+			{Label: "Roles", Href: "/settings/roles", Icon: "shield", Perm: "team.manage"},
+			{Label: "Email Accounts", Href: "/settings/email-accounts", Icon: "mail", Perm: "integration.manage"},
+			{Label: "Integrations", Href: "/settings/integrations", Icon: "webhook", Perm: "integration.manage"},
+			{Label: "API Keys", Href: "/settings/api-keys", Icon: "key", Perm: "integration.manage"},
+			{Label: "Webhooks", Href: "/settings/webhooks", Icon: "webhook", Perm: "integration.manage"},
+			{Label: "Billing", Href: "/settings/billing", Icon: "credit-card", Perm: "billing.manage"},
+			{Label: "White Label", Href: "/settings/white-label", Icon: "palette", Perm: "tenant.manage"},
+		}},
+		{Label: "Super Admin", Items: []navItem{
+			{Label: "Tenants", Href: "/admin/tenants", Icon: "briefcase", Perm: "admin.platform"},
+			{Label: "Plans", Href: "/admin/plans", Icon: "layers", Perm: "admin.platform"},
+			{Label: "Users", Href: "/admin/users", Icon: "users", Perm: "admin.platform"},
+			{Label: "Usage", Href: "/admin/usage", Icon: "bar-chart-3", Perm: "admin.platform"},
+			{Label: "Queue", Href: "/admin/queue", Icon: "cpu", Perm: "admin.platform"},
+			{Label: "Crawlers", Href: "/admin/crawlers", Icon: "globe", Perm: "admin.platform"},
+			{Label: "Logs", Href: "/admin/logs", Icon: "file-text", Perm: "admin.platform"},
+			{Label: "System Health", Href: "/admin/health", Icon: "server", Perm: "admin.platform"},
+		}},
+	}
+}
+
+templ sidebarNav(active string, id *webapp.Identity) {
+	<nav class="flex-1 overflow-y-auto scroll-thin px-3 py-3 space-y-4">
+		for _, g := range navGroups() {
+			{{ var items []navItem }}
+			for _, it := range g.Items {
+				if it.Perm == "" || (id != nil && id.Can(it.Perm)) {
+					{{ items = append(items, it) }}
+				}
+			}
+			if len(items) == 0 {
+				continue
+			}
+			<div>
+				if g.Label != "" {
+					<div class="px-2.5 pb-1.5 text-[10.5px] font-semibold uppercase tracking-wider text-ink-3/90">{ g.Label }</div>
+				}
+				<ul class="space-y-0.5">
+					for _, it := range items {
+						{{ isActive := it.Href == active || (active != "/" && it.Href != "/" && len(active) >= len(it.Href) && active[:len(it.Href)] == it.Href) }}
+						<li>
+							if isActive {
+							<a href={ templ.URL(it.Href) } title={ it.Label }
+								class="group flex items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13px] font-medium transition-colors bg-brand-50 text-brand-700 dark:bg-brand-950/50 dark:text-brand-300">
+								@components.Icon(it.Icon, "w-[17px] h-[17px] shrink-0 opacity-80")
+								<span class="sb-label truncate">{ it.Label }</span>
+							</a>
+						} else {
+							<a href={ templ.URL(it.Href) } title={ it.Label }
+								class="group flex items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13px] font-medium transition-colors text-ink-2 hover:text-ink hover:bg-[#f0f1f6] dark:hover:text-[#e6e8ef] dark:hover:bg-[#1a2030]">
+								@components.Icon(it.Icon, "w-[17px] h-[17px] shrink-0 opacity-80")
+								<span class="sb-label truncate">{ it.Label }</span>
+							</a>
+						}
+						</li>
+					}
+				</ul>
+			</div>
+		}
+	</nav>
+}
+
+// AppShell renders the full authenticated application frame.
+templ AppShell(d *webapp.Renderer, id *webapp.Identity, page webapp.Page, content templ.Component) {
+	<!DOCTYPE html>
+	<html lang="en" class="h-full">
+	<head>
+		<meta charset="utf-8"/>
+		<meta name="viewport" content="width=device-width, initial-scale=1"/>
+		<title>{ page.Title } · { d.AppName }</title>
+		<link rel="stylesheet" href="/static/css/app.css"/>
+		<script src="/static/js/htmx.min.js" defer></script>
+		<script src="/static/js/app.js" defer></script>
+		<link rel="icon" href="/static/images/favicon.svg" type="image/svg+xml"/>
+	</head>
+	<body class="h-full antialiased">
+		<div class="flex h-full">
+			<!-- Sidebar -->
+			<div id="sidebar-mobile-overlay" class="hidden fixed inset-0 bg-black/30 z-30 lg:hidden"></div>
+			<aside class="sb w-[248px] shrink-0 bg-white border-r border-line flex-col z-40 lg:sticky lg:top-0 lg:h-screen
+				fixed inset-y-0 left-0 hidden lg:flex">
+				<div class="h-14 flex items-center gap-2.5 px-4 border-b border-line shrink-0">
+					<div class="w-7 h-7 rounded-lg bg-brand-600 text-white flex items-center justify-center text-[13px] font-bold">L</div>
+					<span class="sb-label font-semibold tracking-tight text-[15px]">{ d.AppName }</span>
+				</div>
+				@sidebarNav(page.ActiveNav, id)
+				<div class="border-t border-line p-3 shrink-0">
+					<div class="flex items-center gap-2.5 px-1">
+						@components.Avatar(id.Name, 30)
+						<div class="sb-label min-w-0">
+							<div class="text-[13px] font-medium text-ink truncate">{ id.Name }</div>
+							<div class="text-[11px] text-ink-3 truncate">{ id.Email }</div>
+						</div>
+						<div class="sb-label ml-auto">
+							<a href="/logout" title="Sign out" class="p-1.5 rounded-md text-ink-3 hover:text-ink hover:bg-[#f0f1f6] inline-block">
+								@components.Icon("log-out", "w-4 h-4")
+							</a>
+						</div>
+					</div>
+				</div>
+			</aside>
+
+			<!-- Main column -->
+			<div class="flex-1 flex flex-col min-w-0">
+				<!-- Topbar -->
+				<header class="h-14 shrink-0 bg-white border-b border-line flex items-center gap-3 px-4 sticky top-0 z-20">
+					<button id="sidebar-mobile-open" class="lg:hidden p-2 -ml-2 rounded-md text-ink-2 hover:bg-[#f0f1f6]">
+						@components.Icon("menu", "w-5 h-5")
+					</button>
+					<button id="sidebar-toggle" class="hidden lg:inline-flex p-2 -ml-2 rounded-md text-ink-3 hover:text-ink hover:bg-[#f0f1f6]" title="Collapse sidebar">
+						@components.Icon("panel-left", "w-[18px] h-[18px]")
+					</button>
+					<form action="/search" method="get" class="relative flex-1 max-w-md">
+						<span class="absolute left-3 top-1/2 -translate-y-1/2 text-ink-3 pointer-events-none">
+							@components.Icon("search", "w-4 h-4")
+						</span>
+						<input id="global-search-input" type="search" name="q" value={ page.SearchQuery }
+							placeholder="Search everything…  Ctrl+K"
+							class="h-9 w-full rounded-lg border border-line bg-[#f6f7fb] pl-9 pr-14 text-[13px] placeholder:text-ink-3 focus:bg-white focus:border-brand-400 focus:ring-2 focus:ring-brand-100 focus:outline-none"/>
+						<kbd class="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-ink-3 border border-line rounded px-1 py-0.5 bg-white pointer-events-none">⌘K</kbd>
+					</form>
+					<div class="ml-auto flex items-center gap-1">
+						<a href="/notifications" class="relative p-2 rounded-md text-ink-3 hover:text-ink hover:bg-[#f0f1f6]" title="Notifications">
+							@components.Icon("bell", "w-[18px] h-[18px]")
+						</a>
+						<a href="/help" class="p-2 rounded-md text-ink-3 hover:text-ink hover:bg-[#f0f1f6] hidden sm:block" title="Help">
+							@components.Icon("help-circle", "w-[18px] h-[18px]")
+						</a>
+						<button id="theme-toggle" class="p-2 rounded-md text-ink-3 hover:text-ink hover:bg-[#f0f1f6]" title="Toggle theme">
+							@components.Icon("moon", "w-[18px] h-[18px]")
+						</button>
+						if id.Can("search.create") {
+							<a href="/finder" class="ml-1.5 inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-brand-600 text-white text-[13px] font-medium hover:bg-brand-700 shadow-xs">
+								@components.Icon("plus", "w-4 h-4")
+								New Search
+							</a>
+						}
+					</div>
+				</header>
+
+				<!-- Content -->
+				<main class="flex-1 min-w-0 overflow-x-hidden">
+					<div class="p-4 md:p-6 max-w-[1440px] mx-auto w-full">
+						@flashArea(page.Flash)
+						@content
+					</div>
+				</main>
+			</div>
+		</div>
+		<form id="kanban-move-form" class="hidden" hx-post="/pipeline/move" hx-target="closest .kanban-col" hx-swap="outerHTML">
+			<input type="hidden" name="_token" value={ page.CSRFToken }/>
+			<input type="hidden" name="lead_id"/>
+			<input type="hidden" name="stage_id"/>
+		</form>
+	</body>
+	</html>
+}
+
+templ flashArea(msgs []flash.Message) {
+	if len(msgs) > 0 {
+		<div class="mb-4 space-y-2">
+			for _, m := range msgs {
+				<div class={ flashCls(m.Kind) + " flex items-start gap-2.5 rounded-lg border px-3.5 py-2.5 text-[13px]" } role="status">
+					<span class="shrink-0 mt-0.5">
+						if m.Kind == "success" {
+							@components.Icon("circle-check", "w-4 h-4")
+						} else if m.Kind == "error" {
+							@components.Icon("alert-triangle", "w-4 h-4")
+						} else {
+							@components.Icon("bell", "w-4 h-4")
+						}
+					</span>
+					<span>{ m.Text }</span>
+				</div>
+			}
+		</div>
+	}
+}
+
+func flashCls(kind string) string {
+	switch kind {
+	case "success":
+		return "bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:border-emerald-900"
+	case "error":
+		return "bg-red-50 text-red-800 border-red-200 dark:bg-red-950/40 dark:text-red-200 dark:border-red-900"
+	case "warning":
+		return "bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/40 dark:text-amber-200 dark:border-amber-900"
+	default:
+		return "bg-blue-50 text-blue-800 border-blue-200 dark:bg-blue-950/40 dark:text-blue-200 dark:border-blue-900"
+	}
+}
+
+// AuthLayout for login/register/etc — split brand + form.
+templ AuthLayout(d *webapp.Renderer, title string, content templ.Component) {
+	<!DOCTYPE html>
+	<html lang="en" class="h-full">
+	<head>
+		<meta charset="utf-8"/>
+		<meta name="viewport" content="width=device-width, initial-scale=1"/>
+		<title>{ title } · { d.AppName }</title>
+		<link rel="stylesheet" href="/static/css/app.css"/>
+		<script src="/static/js/app.js" defer></script>
+		<link rel="icon" href="/static/images/favicon.svg" type="image/svg+xml"/>
+	</head>
+	<body class="h-full antialiased bg-white">
+		<div class="grid min-h-full lg:grid-cols-2">
+			<div class="hidden lg:flex flex-col justify-between bg-[#0e1118] text-white p-10 relative overflow-hidden">
+				<div class="flex items-center gap-2.5">
+					<div class="w-8 h-8 rounded-lg bg-brand-500 flex items-center justify-center font-bold">L</div>
+					<span class="font-semibold tracking-tight text-[17px]">{ d.AppName }</span>
+				</div>
+				<div class="max-w-md">
+					<h1 class="text-[30px] leading-9 font-semibold tracking-tight">Find the right companies.<br/>Reach the right people.<br/>Close more deals.</h1>
+					<p class="mt-4 text-[15px] leading-7 text-white/60">Discover, enrich and engage your next customers — from one workspace built for outbound sales teams.</p>
+					<div class="mt-8 grid grid-cols-3 gap-3 max-w-sm">
+						<div class="rounded-lg bg-white/5 border border-white/10 p-3">
+							<div class="text-ink-3 text-[11px] text-white/50">Discover</div>
+							<div class="text-[13px] mt-1 text-white/90">Search &amp; crawl</div>
+						</div>
+						<div class="rounded-lg bg-white/5 border border-white/10 p-3">
+							<div class="text-[11px] text-white/50">Enrich</div>
+							<div class="text-[13px] mt-1 text-white/90">Contacts &amp; scoring</div>
+						</div>
+						<div class="rounded-lg bg-white/5 border border-white/10 p-3">
+							<div class="text-[11px] text-white/50">Engage</div>
+							<div class="text-[13px] mt-1 text-white/90">CRM &amp; outreach</div>
+						</div>
+					</div>
+				</div>
+				<div class="text-[12px] text-white/40">© 2026 { d.AppName }. All rights reserved.</div>
+				<div class="absolute -right-24 -bottom-24 w-96 h-96 rounded-full bg-brand-600/20 blur-3xl"></div>
+			</div>
+			<div class="flex items-center justify-center p-6 sm:p-10">
+				<div class="w-full max-w-sm">
+					@content
+				</div>
+			</div>
+		</div>
+	</body>
+	</html>
+}
+
+// ErrorLayout for friendly errors.
+templ ErrorLayout(d *webapp.Renderer, data webapp.ErrorPageData) {
+	<!DOCTYPE html>
+	<html lang="en" class="h-full">
+	<head>
+		<meta charset="utf-8"/>
+		<meta name="viewport" content="width=device-width, initial-scale=1"/>
+		<title>{ data.Title } · { d.AppName }</title>
+		<link rel="stylesheet" href="/static/css/app.css"/>
+	</head>
+	<body class="h-full antialiased bg-canvas">
+		<div class="min-h-full flex items-center justify-center p-6">
+			<div class="text-center max-w-md">
+				<div class="text-[60px] font-bold tracking-tight text-brand-600">{ fmtInt(data.Code) }</div>
+				<h1 class="mt-1 text-[20px] font-semibold text-ink">{ data.Title }</h1>
+				<p class="mt-2 text-[14px] text-ink-3">{ data.Message }</p>
+				<div class="mt-6 flex items-center justify-center gap-2">
+					<a href="/" class="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-brand-600 text-white text-[13px] font-medium hover:bg-brand-700">Back to dashboard</a>
+				</div>
+			</div>
+		</div>
+	</body>
+	</html>
+}
+
+func fmtInt(n int) string {
+	digits := ""
+	if n == 0 {
+		return "0"
+	}
+	for n > 0 {
+		digits = string(rune('0'+n%10)) + digits
+		n /= 10
+	}
+	return digits
+}

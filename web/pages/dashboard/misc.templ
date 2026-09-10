@@ -1,0 +1,113 @@
+package dashboard
+
+import "leadforge/web/components"
+
+// NotificationsPageItem is one notification row.
+type NotificationsPageItem struct {
+	Title   string
+	Body    string
+	Link    string
+	Read    bool
+	Created string
+}
+
+// NotificationsPage renders the notification center.
+templ NotificationsPage(p PageMeta, items []NotificationsPageItem) {
+	<div class="max-w-2xl mx-auto space-y-4">
+		<header>
+			<h1 class="text-[24px] font-semibold tracking-tight text-ink">Notifications</h1>
+			<p class="mt-0.5 text-[14px] text-ink-3">Updates about searches, campaigns and your workspace.</p>
+		</header>
+		<div class="card bg-white border border-line rounded-xl shadow-xs">
+			if len(items) == 0 {
+				@components.EmptyState("bell", "You're all caught up", "Notifications about completed searches, hot leads and campaign activity will appear here.", nil)
+			} else {
+				<ul class="divide-y divide-[#f0f1f6]">
+					for _, it := range items {
+						<li class="px-4 py-3.5 flex items-start gap-3">
+							<span class="mt-1 w-2 h-2 rounded-full shrink-0" style={ dotColor(it.Read) }></span>
+							<div class="min-w-0 flex-1">
+								<div class="text-[13.5px] font-medium text-ink">{ it.Title }</div>
+								if it.Body != "" {
+									<div class="text-[13px] text-ink-2 mt-0.5">{ it.Body }</div>
+								}
+								<div class="text-[11.5px] text-ink-3 mt-1">{ it.Created }</div>
+							</div>
+							if it.Link != "" {
+								<a href={ templ.URL(it.Link) } class="text-[12.5px] text-brand-600 hover:text-brand-700 shrink-0">View →</a>
+							}
+						</li>
+					}
+				</ul>
+			}
+		</div>
+	</div>
+}
+
+func dotColor(read bool) string {
+	if read {
+		return "background:#d7dae3"
+	}
+	return "background:#4f46e5"
+}
+
+// HelpPage renders a help page (real links, no dead ends).
+templ HelpPage(p PageMeta) {
+	<div class="max-w-2xl mx-auto space-y-4">
+		<header>
+			<h1 class="text-[24px] font-semibold tracking-tight text-ink">Help &amp; Getting Started</h1>
+			<p class="mt-0.5 text-[14px] text-ink-3">Quick walkthrough of the LeadForge workflow.</p>
+		</header>
+		<div class="grid gap-3 sm:grid-cols-2">
+			@helpCard("compass", "1. Find leads", "Use Lead Finder to search companies by keyword, industry and location. Results are crawled, deduplicated and scored.", "/finder")
+			@helpCard("gauge", "2. Score & qualify", "Rule-based scoring ranks every lead. Configure signals under Lead Scoring to match your ICP.", "/scoring")
+			@helpCard("kanban", "3. Work your pipeline", "Drag leads into your CRM pipeline, track deals through stages and schedule follow-up tasks.", "/pipeline")
+			@helpCard("megaphone", "4. Run outreach", "Build sequences, connect an SMTP account and launch campaigns with suppression and bounce protection.", "/campaigns")
+		</div>
+	</div>
+}
+
+templ helpCard(icon, title, desc, href string) {
+	<a href={ templ.URL(href) } class="card block bg-white border border-line rounded-xl shadow-xs p-4 hover:border-brand-300 transition-colors">
+		<div class="w-9 h-9 rounded-lg bg-brand-50 text-brand-600 border border-brand-100 flex items-center justify-center">
+			@components.Icon(icon, "w-4 h-4")
+		</div>
+		<h3 class="mt-2.5 text-[14px] font-semibold text-ink">{ title }</h3>
+		<p class="mt-1 text-[12.5px] leading-5 text-ink-3">{ desc }</p>
+	</a>
+}
+
+// SearchResultsPage renders global search results.
+templ SearchResultsPage(p PageMeta, q string, results []SearchResult) {
+	<div class="max-w-2xl mx-auto space-y-4">
+		<header>
+			<h1 class="text-[24px] font-semibold tracking-tight text-ink">Search</h1>
+			<p class="mt-0.5 text-[14px] text-ink-3">
+				if q != "" {
+					Results for “{ q }” across companies, contacts, deals and campaigns.
+				} else {
+					Type in the top bar to search everything (Ctrl+K).
+				}
+			</p>
+		</header>
+		<div class="card bg-white border border-line rounded-xl shadow-xs">
+			if len(results) == 0 {
+				@components.EmptyState("search", "No matches", "Nothing found for this query. Try a different company, contact or deal name.", nil)
+			} else {
+				<ul class="divide-y divide-[#f0f1f6]">
+					for _, r := range results {
+						<li>
+							<a href={ templ.URL(r.Href) } class="flex items-center justify-between px-4 py-3 hover:bg-[#f6f7fb]">
+								<div class="min-w-0">
+									<div class="text-[13.5px] font-medium text-ink truncate">{ r.Text }</div>
+									<div class="text-[12px] text-ink-3 truncate">{ r.Sub }</div>
+								</div>
+								@components.Badge(r.Type, "gray")
+							</a>
+						</li>
+					}
+				</ul>
+			}
+		</div>
+	</div>
+}

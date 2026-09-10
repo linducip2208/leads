@@ -1,0 +1,23 @@
+package dashboard
+
+import (
+	"leadforge/web/components"
+)
+
+// leadActionLink is the "View all" link on the recent leads card.
+templ leadActionLink() {
+	<a href="/leads" class="text-[12.5px] font-medium text-brand-600 hover:text-brand-700">View all →</a>
+}
+
+// searchActionLink is the "View all" link on the recent searches card.
+templ searchActionLink() {
+	<a href="/searches" class="text-[12.5px] font-medium text-brand-600 hover:text-brand-700">View all →</a>
+}
+
+// leadEmptyCTA is the CTA button on the dashboard empty state.
+templ leadEmptyCTA() {
+	<a href="/finder" class="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-brand-600 text-white text-[13px] font-medium hover:bg-brand-700 shadow-xs">
+		@components.Icon("compass", "w-4 h-4")
+		Find Leads
+	</a>
+}

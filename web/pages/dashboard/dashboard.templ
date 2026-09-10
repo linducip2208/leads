@@ -1,0 +1,349 @@
+package dashboard
+
+import (
+	"fmt"
+	"strconv"
+
+	"leadforge/web/components"
+)
+
+const cardCls = "card bg-white border border-line rounded-xl shadow-xs"
+
+// Page renders the main dashboard.
+templ Page(p PageMeta, d *Data) {
+	<div class="space-y-5">
+		<header class="flex flex-wrap items-end justify-between gap-3">
+			<div>
+				<h1 class="text-[24px] font-semibold tracking-tight text-ink">Good { dayPart() }, { d.UserName }</h1>
+				<p class="mt-0.5 text-[14px] text-ink-3">Here's what's happening with your sales pipeline.</p>
+			</div>
+			<div class="text-[13px] text-ink-3 tabular-nums">
+				{ todayLabel() }
+			</div>
+		</header>
+
+		<!-- KPI row -->
+		<div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+			@components.MetricCard("Total Leads", strconv.FormatInt(d.Total, 10), pct(d.Total, d.Total), false, d.SparkTotal)
+			@components.MetricCard("Qualified", strconv.FormatInt(d.Qualified, 10), pct(d.Qualified, d.Total), false, nil)
+			@components.MetricCard("Contacted", strconv.FormatInt(d.Contacted, 10), pct(d.Contacted, d.Total), false, nil)
+			@components.MetricCard("Replies", strconv.FormatInt(d.Replies, 10), pct(d.Replies, d.Contacted), false, nil)
+			@components.MetricCard("Meetings", strconv.FormatInt(d.Meetings, 10), pct(d.Meetings, d.Contacted), false, nil)
+			@components.MetricCard("Deals Won", strconv.FormatInt(d.Won, 10), pct(d.Won, d.Contacted), false, nil)
+		</div>
+
+		<!-- Growth + Funnel -->
+		<div class="grid grid-cols-1 xl:grid-cols-3 gap-4">
+			<div class="xl:col-span-2">
+				<div class={ cardCls }>
+					@components.CardHeader("Lead Growth", "New leads per day · last 14 days", nil)
+					<div class="px-4 pb-4">
+						@LineChart(d.LeadGrowth, 640, 180)
+					</div>
+				</div>
+			</div>
+			<div class={ cardCls }>
+				@components.CardHeader("Pipeline Funnel", "Conversion across stages", nil)
+				<div class="px-4 pb-4 space-y-2.5">
+					if len(d.Funnel) == 0 {
+						<p class="text-[13px] text-ink-3 py-6 text-center">No pipeline data yet.</p>
+					}
+					for i, f := range d.Funnel {
+						@FunnelBar(f, maxFunnel(d.Funnel), i)
+					}
+				</div>
+			</div>
+		</div>
+
+		<!-- Recent leads + hot leads -->
+		<div class="grid grid-cols-1 xl:grid-cols-3 gap-4">
+			<div class="xl:col-span-2">
+				<div class={ cardCls }>
+					@components.CardHeader("Recent Leads", "Latest additions to your database", leadActionLink())
+					if len(d.RecentLeads) == 0 {
+						@components.EmptyState("database", "No leads yet", "Run your first search to start filling your database.", leadEmptyCTA())
+					} else {
+						<div class="overflow-x-auto scroll-thin">
+							<table class="tbl w-full">
+								<thead>
+									<tr class="bg-[#fafbfd] dark:bg-transparent">
+										<th>Company</th><th>Location</th><th>Contact</th><th>Score</th><th>Status</th><th>Added</th>
+									</tr>
+								</thead>
+								<tbody>
+									for _, r := range d.RecentLeads {
+										<tr>
+											<td class="font-medium text-ink"><a href={ leadHref(r.ID) } class="hover:text-brand-700">{ r.Company }</a></td>
+											<td class="text-ink-2">{ r.City }</td>
+											<td class="text-ink-2">{ r.Contact }</td>
+											<td>@components.ScoreBadge(r.Score)</td>
+											<td>@statusBadge(r.Status)</td>
+											<td class="text-ink-3">{ r.When }</td>
+										</tr>
+									}
+								</tbody>
+							</table>
+						</div>
+					}
+				</div>
+			</div>
+			<div class={ cardCls }>
+				@components.CardHeader("Hot Leads", "Score ≥ 70 · reach out first", nil)
+				<div class="px-4 pb-4 space-y-2">
+					if len(d.HotLeads) == 0 {
+						<p class="text-[13px] text-ink-3 py-6 text-center">No hot leads yet. Score rises as data is enriched.</p>
+					}
+					for _, r := range d.HotLeads {
+						<a href={ leadHref(r.ID) } class="flex items-center justify-between gap-3 rounded-lg border border-line px-3 py-2.5 hover:border-brand-300 hover:bg-brand-50/40 transition-colors">
+							<div class="min-w-0">
+								<div class="text-[13px] font-medium text-ink truncate">{ r.Company }</div>
+								<div class="text-[11.5px] text-ink-3 truncate">{ r.Industry } · { r.City }</div>
+							</div>
+							@components.ScoreBadge(r.Score)
+						</a>
+					}
+				</div>
+			</div>
+		</div>
+
+		<!-- Activities + sources/searches -->
+		<div class="grid grid-cols-1 xl:grid-cols-3 gap-4">
+			<div class="xl:col-span-2">
+				<div class={ cardCls }>
+					@components.CardHeader("Recent Activities", "Everything happening in your workspace", nil)
+					if len(d.Activities) == 0 {
+						<p class="text-[13px] text-ink-3 py-8 text-center">No activity yet.</p>
+					} else {
+						<ul class="px-4 pb-4 divide-y divide-[#f0f1f6]">
+							for _, a := range d.Activities {
+								<li class="flex items-center gap-3 py-2.5">
+									<span class="w-7 h-7 rounded-full bg-[#f0f1f6] text-ink-2 flex items-center justify-center shrink-0">
+										@components.Icon(activityIcon(a.Kind), "w-3.5 h-3.5")
+									</span>
+									<div class="min-w-0 flex-1">
+										<div class="text-[13px] text-ink truncate">{ a.Text }</div>
+										<div class="text-[11.5px] text-ink-3">{ a.Who }</div>
+									</div>
+									<span class="text-[11.5px] text-ink-3 tabular-nums shrink-0">{ a.When }</span>
+								</li>
+							}
+						</ul>
+					}
+				</div>
+			</div>
+			<div class="space-y-4">
+				<div class={ cardCls }>
+					@components.CardHeader("Lead Sources", "Where your leads come from", nil)
+					<div class="px-4 pb-4 space-y-2.5">
+						if len(d.Sources) == 0 {
+							<p class="text-[13px] text-ink-3 py-4 text-center">No sources yet.</p>
+						}
+						for _, s := range d.Sources {
+							@SourceBar(s, maxSource(d.Sources))
+						}
+					</div>
+				</div>
+				<div class={ cardCls }>
+					@components.CardHeader("Recent Searches", "Latest discovery runs", searchActionLink())
+					<div class="px-4 pb-4">
+						if len(d.RecentSearch) == 0 {
+							<p class="text-[13px] text-ink-3 py-4 text-center">No searches yet.</p>
+						}
+						<ul class="space-y-2">
+							for _, s := range d.RecentSearch {
+								<li class="flex items-center justify-between gap-2">
+									<a href={ templ.URL("/searches/" + s.ID) } class="min-w-0 group">
+										<div class="text-[13px] text-ink truncate group-hover:text-brand-700">{ s.Query }</div>
+										<div class="text-[11.5px] text-ink-3">{ s.Location } · { s.When }</div>
+									</a>
+									@statusBadge(s.Status)
+								</li>
+							}
+						</ul>
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+}
+
+templ FunnelBar(f FunnelRow, max int64, idx int) {
+	{{ colors := []string{"#4f46e5","#6366f1","#818cf8","#34d399","#f59e0b","#10b981"} }}
+	{{ widthPct := 100.0 }}
+	{{ if max > 0 { widthPct = float64(f.Value) / float64(max) * 100 } }}
+	<div>
+		<div class="flex items-center justify-between text-[12px]">
+			<span class="text-ink-2">{ f.Label }</span>
+			<span class="font-medium tabular-nums text-ink">{ fmtInt(f.Value) }</span>
+		</div>
+		<div class="mt-1 h-2 rounded-full bg-[#eceef4] overflow-hidden">
+			<div class="h-full rounded-full" style={ fmt.Sprintf("width:%.1f%%; background:%s", widthPct, colors[idx%len(colors)]) }></div>
+		</div>
+	</div>
+}
+
+templ SourceBar(s NameValue, max int64) {
+	{{ widthPct := 0.0 }}
+	{{ if max > 0 { widthPct = float64(s.Value) / float64(max) * 100 } }}
+	<div>
+		<div class="flex items-center justify-between text-[12px]">
+			<span class="text-ink-2 capitalize">{ s.Name }</span>
+			<span class="font-medium tabular-nums text-ink">{ fmtInt(s.Value) }</span>
+		</div>
+		<div class="mt-1 h-2 rounded-full bg-[#eceef4] overflow-hidden">
+			<div class="h-full rounded-full bg-brand-500" style={ fmt.Sprintf("width:%.1f%%", widthPct) }></div>
+		</div>
+	</div>
+}
+
+// LineChart renders a server-side SVG line chart with grid + axis labels.
+templ LineChart(points []Point, w, h int) {
+	{{ path, area, maxY := chartPath(points, w, h) }}
+	if len(points) > 1 {
+		<svg viewBox={ fmt.Sprintf("0 0 %d %d", w+40, h+30) } class="w-full" fill="none">
+			for i := 1; i <= 4; i++ {
+				<line x1="40" y1={ fmt.Sprintf("%.0f", float64(h)*float64(i)/5) } x2={ fmt.Sprintf("%d", w+40) } y2={ fmt.Sprintf("%.0f", float64(h)*float64(i)/5) } stroke="#eceef4" stroke-width="1"></line>
+			}
+			<path d={ area } fill="#4f46e5" opacity="0.06"></path>
+			<path d={ path } stroke="#4f46e5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
+			<text x="4" y="14" class="chart-axis">{ maxYLabel(maxY) }</text>
+			<text x="42" y={ fmt.Sprintf("%d", h+22) } class="chart-axis">{ firstLabel(points) }</text>
+			<text x={ fmt.Sprintf("%d", w+10) } y={ fmt.Sprintf("%d", h+22) } class="chart-axis" text-anchor="end">{ lastLabel(points) }</text>
+		</svg>
+	} else {
+		<div class="h-[180px] flex items-center justify-center text-[13px] text-ink-3">Chart appears once you have lead data.</div>
+	}
+}
+
+func chartPath(points []Point, w, h int) (line, area string, maxY float64) {
+	if len(points) < 2 {
+		return "", "", 0
+	}
+	maxY = 1
+	for _, p := range points {
+		if p.Value > maxY {
+			maxY = p.Value
+		}
+	}
+	px := float64(w) / float64(len(points)-1)
+	for i, p := range points {
+		x := 40 + float64(i)*px
+		y := float64(h) - (p.Value/maxY)*(float64(h)-8) - 2
+		seg := fmt.Sprintf("%.1f %.1f", x, y)
+		if i == 0 {
+			line = "M " + seg
+		} else {
+			line += " L " + seg
+		}
+	}
+	area = line + fmt.Sprintf(" L %.1f %d L 40 %d Z", 40+float64(len(points)-1)*px, h, h)
+	return line, area, maxY
+}
+
+func maxYLabel(maxY float64) string { return fmt.Sprintf("%.0f", maxY) }
+
+func firstLabel(points []Point) string {
+	if len(points) == 0 {
+		return ""
+	}
+	return points[0].Label
+}
+
+func lastLabel(points []Point) string {
+	if len(points) == 0 {
+		return ""
+	}
+	return points[len(points)-1].Label
+}
+
+func maxFunnel(rows []FunnelRow) int64 {
+	var m int64
+	for _, r := range rows {
+		if r.Value > m {
+			m = r.Value
+		}
+	}
+	return m
+}
+
+func maxSource(rows []NameValue) int64 {
+	var m int64
+	for _, r := range rows {
+		if r.Value > m {
+			m = r.Value
+		}
+	}
+	return m
+}
+
+func pct(part, total int64) float64 {
+	if total == 0 || part == 0 {
+		return 0
+	}
+	return float64(part) / float64(total) * 100
+}
+
+func fmtInt(n int64) string { return strconv.FormatInt(n, 10) }
+
+func dayPart() string {
+	h := timeNow().Hour()
+	switch {
+	case h < 12:
+		return "morning"
+	case h < 18:
+		return "afternoon"
+	default:
+		return "evening"
+	}
+}
+
+func todayLabel() string { return timeNow().Format("Monday, 02 January 2006") }
+
+func statusBadge(status string) (c templ.Component) {
+	switch status {
+	case "hot":
+		c = components.Badge("Hot", "red")
+	case "qualified":
+		c = components.Badge("Qualified", "green")
+	case "contacted":
+		c = components.Badge("Contacted", "blue")
+	case "new":
+		c = components.Badge("New", "brand")
+	case "running":
+		c = components.Badge("Running", "blue")
+	case "completed":
+		c = components.Badge("Completed", "green")
+	case "paused":
+		c = components.Badge("Paused", "amber")
+	case "failed":
+		c = components.Badge("Failed", "red")
+	case "cancelled":
+		c = components.Badge("Cancelled", "gray")
+	case "pending":
+		c = components.Badge("Pending", "amber")
+	default:
+		c = components.Badge(status, "gray")
+	}
+	return c
+}
+
+func activityIcon(kind string) string {
+	switch kind {
+	case "search":
+		return "compass"
+	case "crawl":
+		return "globe"
+	case "email":
+		return "mail"
+	case "call":
+		return "phone"
+	case "note":
+		return "file-text"
+	case "stage_changed":
+		return "kanban"
+	default:
+		return "activity"
+	}
+}
+
+func leadHref(id string) string { return "/leads/" + id }

@@ -1,0 +1,65 @@
+/* Tailwind CSS v4 build — scanned automatically by the standalone CLI */
+@import "tailwindcss";
+
+@font-face {
+  font-family: "Inter";
+  src: url("/static/fonts/InterVariable.ttf") format("truetype-variations");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+
+  --color-brand-50:  #eef2ff;
+  --color-brand-100: #e0e7ff;
+  --color-brand-200: #c7d2fe;
+  --color-brand-300: #a5b4fc;
+  --color-brand-400: #818cf8;
+  --color-brand-500: #6366f1;
+  --color-brand-600: #4f46e5;
+  --color-brand-700: #4338ca;
+  --color-brand-800: #3730a3;
+  --color-brand-900: #312e81;
+
+  --color-canvas: #f8f9fc;
+  --color-line: #e7e9f0;
+  --color-ink: #171923;
+  --color-ink-2: #4a5165;
+  --color-ink-3: #7b8199;
+
+  --radius-card: 0.75rem;
+}
+
+/* base */
+html { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+body { @apply bg-canvas text-ink font-sans text-[14px] leading-6; }
+
+/* thin scrollbars for dense tables */
+.scroll-thin::-webkit-scrollbar { height: 8px; width: 8px; }
+.scroll-thin::-webkit-scrollbar-thumb { @apply bg-gray-300 rounded-full; }
+.scroll-thin::-webkit-scrollbar-track { background: transparent; }
+
+/* focus */
+:focus-visible { outline: 2px solid var(--color-brand-500); outline-offset: 2px; }
+
+/* dark mode */
+.dark body { @apply bg-[#0d1017] text-[#e6e8ef]; }
+.dark .card { @apply bg-[#141821] border-[#232a38]; }
+.dark .input { @apply bg-[#10131b] border-[#2a3242] text-[#e6e8ef]; }
+
+/* htmx request indicator */
+.htmx-request { opacity: 0.6; transition: opacity 150ms ease; }
+
+/* kanban drag placeholder */
+.kanban-placeholder { @apply rounded-lg border-2 border-dashed border-brand-300 bg-brand-50/50; }
+
+/* sparkline + chart text */
+.chart-axis text { font-size: 10px; fill: #7b8199; }
+
+/* table density */
+.tbl th { @apply px-3 py-2 text-left text-[11px] font-medium uppercase tracking-wide text-ink-3 whitespace-nowrap; }
+.tbl td { @apply px-3 py-2 align-middle whitespace-nowrap; }
+.tbl tbody tr { @apply border-t border-line hover:bg-[#f6f7fb]; }
+.dark .tbl tbody tr { @apply border-[#1e2534] hover:bg-[#161b26]; }

@@ -1,0 +1,89 @@
+// Command server runs the LeadForge web application.
+package main
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+	"net/http"
+	"os"
+	"os/signal"
+	"sync/atomic"
+	"syscall"
+	"time"
+
+	"leadforge/internal/auth"
+	"leadforge/internal/csrf"
+	"leadforge/internal/platform"
+	"leadforge/internal/session"
+	"leadforge/internal/web"
+)
+
+func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	cont, err := platform.NewContainer(ctx)
+	if err != nil {
+		slog.Error("startup failed", "err", err)
+		os.Exit(1)
+	}
+	defer cont.Close()
+
+	sess := session.NewManager(cont.PG, cont.Cfg.SessionSecret, cont.Cfg.SessionTTL, cont.Cfg.IsProd())
+	csrfMgr := csrf.New(cont.Cfg.SessionSecret)
+	authSvc := auth.NewService(cont.PG)
+
+	srv := &http.Server{
+		Addr:              cont.Cfg.Addr,
+		Handler:           web.New(web.Config{AppName: cont.Cfg.AppName, Env: cont.Cfg.Env, Addr: cont.Cfg.Addr, AppURL: cont.Cfg.AppURL}, cont.Log, cont.PG, authSvc, sess, csrfMgr).Handler(),
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       60 * time.Second,
+		WriteTimeout:      120 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20,
+	}
+
+	// background maintenance: sweep expired sessions and tokens
+	var sweepStopped atomic.Bool
+	go func() {
+		t := time.NewTicker(6 * time.Hour)
+		defer t.Stop()
+		sess.Sweep(ctx)
+		for {
+			select {
+			case <-ctx.Done():
+				sweepStopped.Store(true)
+				return
+			case <-t.C:
+				sess.Sweep(context.WithoutCancel(ctx))
+			}
+		}
+	}()
+
+	errCh := make(chan error, 1)
+	go func() {
+		cont.Log.Info("http server listening", "addr", cont.Cfg.Addr, "app_url", cont.Cfg.AppURL)
+		errCh <- srv.ListenAndServe()
+	}()
+
+	select {
+	case err := <-errCh:
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			cont.Log.Error("server failed", "err", err)
+			os.Exit(1)
+		}
+	case <-ctx.Done():
+		cont.Log.Info("shutdown signal received")
+	}
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		cont.Log.Error("graceful shutdown failed", "err", err)
+	}
+	for !sweepStopped.Load() {
+		time.Sleep(10 * time.Millisecond)
+	}
+	cont.Log.Info("server stopped")
+}

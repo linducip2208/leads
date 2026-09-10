@@ -1,0 +1,141 @@
+package auth
+
+import "leadforge/web/components"
+
+// PageData is shared metadata for auth pages.
+type PageData struct {
+	Title     string
+	CSRFToken string
+	Flash     []FlashMsg
+}
+
+// FlashMsg is a flash notification on auth pages.
+type FlashMsg struct {
+	Kind string
+	Text string
+}
+
+templ LoginPage(p PageData, email, errMsg string) {
+	@authForm(p) {
+		<h1 class="text-[22px] font-semibold tracking-tight text-ink">Sign in to LeadForge</h1>
+		<p class="mt-1.5 text-[14px] text-ink-3">Welcome back. Enter your details to continue.</p>
+		if errMsg != "" {
+			<div class="mt-5 rounded-lg border border-red-200 bg-red-50 px-3.5 py-2.5 text-[13px] text-red-800">{ errMsg }</div>
+		}
+		<form class="mt-6 space-y-4" method="post" action="/login">
+			@components.Input("email", "Email", email, "you@company.com", "email", true)
+			<div class="space-y-1.5">
+				<div class="flex items-center justify-between">
+					<label for="password" class="block text-[13px] font-medium text-ink-2">Password</label>
+					<a href="/forgot-password" class="text-[12px] text-brand-600 hover:text-brand-700">Forgot password?</a>
+				</div>
+				<input type="password" id="password" name="password" required autocomplete="current-password"
+					class="h-9 w-full rounded-lg border border-line bg-white px-3 text-[13px] focus:border-brand-400 focus:ring-2 focus:ring-brand-100 focus:outline-none"/>
+			</div>
+			@components.Btn("Sign In", components.BtnPrimary, components.BtnMd, "", templ.Attributes{})
+			<p class="pt-1 text-center text-[13px] text-ink-3">
+				New to LeadForge? <a href="/register" class="font-medium text-brand-600 hover:text-brand-700">Create an account</a>
+			</p>
+		</form>
+	}
+}
+
+templ RegisterPage(p PageData, name, email, workspace, errMsg string) {
+	@authForm(p) {
+		<h1 class="text-[22px] font-semibold tracking-tight text-ink">Create your workspace</h1>
+		<p class="mt-1.5 text-[14px] text-ink-3">Start finding customers in minutes.</p>
+		if errMsg != "" {
+			<div class="mt-5 rounded-lg border border-red-200 bg-red-50 px-3.5 py-2.5 text-[13px] text-red-800">{ errMsg }</div>
+		}
+		<form class="mt-6 space-y-4" method="post" action="/register">
+			@components.Input("name", "Full name", name, "Budi Santoso", "text", true)
+			@components.Input("workspace", "Workspace name", workspace, "Acme Sales", "text", true)
+			@components.Input("email", "Work email", email, "you@company.com", "email", true)
+			@components.Input("password", "Password", "", "Min. 8 characters", "password", true)
+			@components.Btn("Create Account", components.BtnPrimary, components.BtnMd, "", templ.Attributes{})
+			<p class="pt-1 text-center text-[13px] text-ink-3">
+				Already have an account? <a href="/login" class="font-medium text-brand-600 hover:text-brand-700">Sign in</a>
+			</p>
+		</form>
+	}
+}
+
+templ ForgotPage(p PageData, errMsg string) {
+	@authForm(p) {
+		<h1 class="text-[22px] font-semibold tracking-tight text-ink">Forgot your password?</h1>
+		<p class="mt-1.5 text-[14px] text-ink-3">Enter your email and we'll send a reset link.</p>
+		<form class="mt-6 space-y-4" method="post" action="/forgot-password">
+			@components.Input("email", "Email", "", "you@company.com", "email", true)
+			@components.Btn("Send Reset Link", components.BtnPrimary, components.BtnMd, "", templ.Attributes{})
+			<p class="pt-1 text-center text-[13px] text-ink-3">
+				<a href="/login" class="font-medium text-brand-600 hover:text-brand-700">← Back to sign in</a>
+			</p>
+		</form>
+	}
+}
+
+templ ForgotSentPage(email string) {
+	@authForm(PageData{}) {
+		@authSentContent(email)
+	}
+}
+
+templ authSentContent(email string) {
+	<div>
+		<h1 class="text-[22px] font-semibold tracking-tight text-ink">Check your email</h1>
+		<p class="mt-2 text-[14px] text-ink-3 leading-6">
+			If an account exists for <span class="font-medium text-ink">{ email }</span>, we've sent a link to reset your password. The link expires in one hour.
+		</p>
+		<p class="mt-6 text-[13px]">
+			<a href="/login" class="font-medium text-brand-600 hover:text-brand-700">← Back to sign in</a>
+		</p>
+	</div>
+}
+
+templ ResetPage(p PageData, token, errMsg string) {
+	@authForm(p) {
+		<h1 class="text-[22px] font-semibold tracking-tight text-ink">Choose a new password</h1>
+		<p class="mt-1.5 text-[14px] text-ink-3">Make it at least 8 characters.</p>
+		if errMsg != "" {
+			<div class="mt-5 rounded-lg border border-red-200 bg-red-50 px-3.5 py-2.5 text-[13px] text-red-800">{ errMsg }</div>
+		}
+		<form class="mt-6 space-y-4" method="post" action="/reset-password">
+			<input type="hidden" name="token" value={ token }/>
+			@components.Input("password", "New password", "", "Min. 8 characters", "password", true)
+			@components.Btn("Update Password", components.BtnPrimary, components.BtnMd, "", templ.Attributes{})
+			<p class="pt-1 text-center text-[13px]">
+				<a href="/login" class="font-medium text-brand-600 hover:text-brand-700">← Back to sign in</a>
+			</p>
+		</form>
+	}
+}
+
+templ authForm(p PageData, children ...templ.Component) {
+	<div>
+		@flashArea(p.Flash)
+		{ children... }
+	</div>
+}
+
+templ flashArea(msgs []FlashMsg) {
+	if len(msgs) > 0 {
+		<div class="mb-4 space-y-2">
+			for _, m := range msgs {
+				<div class={ flashCls(m.Kind) + " rounded-lg border px-3.5 py-2.5 text-[13px]" } role="status">
+					{ m.Text }
+				</div>
+			}
+		</div>
+	}
+}
+
+func flashCls(kind string) string {
+	switch kind {
+	case "success":
+		return "bg-emerald-50 text-emerald-800 border-emerald-200"
+	case "error":
+		return "bg-red-50 text-red-800 border-red-200"
+	default:
+		return "bg-blue-50 text-blue-800 border-blue-200"
+	}
+}

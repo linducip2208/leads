@@ -1,0 +1,22 @@
+# Binaries & vendored dev tools over GitHub's 100MB limit
+tools/bin/
+*.pdb
+*.exe
+leadforge
+leadforge.exe
+
+# Env & secrets
+.env
+.env.*
+!.env.example
+
+# Go
+*.test
+*.out
+vendor/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

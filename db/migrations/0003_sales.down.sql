@@ -1,0 +1,8 @@
+-- reverse of 0003
+DROP TABLE IF EXISTS notes;
+DROP TABLE IF EXISTS activities;
+DROP TABLE IF EXISTS tasks;
+DROP TABLE IF EXISTS deal_activities;
+DROP TABLE IF EXISTS deals;
+DROP TABLE IF EXISTS pipeline_stages;
+DROP TABLE IF EXISTS pipelines;
