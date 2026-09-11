@@ -40,10 +40,10 @@ func main() {
 	qcEmit := queue.NewClient(cont.Cfg.RedisAddr)
 	defer qcEmit.Close()
 	searchDeps := search.NewDeps(cont.PG, cont.Cfg, cont.Log, os.Getenv("GOOGLE_PLACES_API_KEY"))
-	searchDeps.Emit = func(tenantID, event string, payload map[string]any) {
-		if err := webhookstore.Emit(context.Background(), cont.PG, tenantID, event, payload,
+	searchDeps.Emit = func(ctx context.Context, tenantID, event string, payload map[string]any) {
+		if err := webhookstore.Emit(ctx, cont.PG, tenantID, event, payload,
 			func(webhookID, ev string, body []byte) error {
-				return qcEmit.EnqueueWebhook(context.Background(), webhookID, ev, body)
+				return qcEmit.EnqueueWebhook(ctx, webhookID, ev, body)
 			}); err != nil {
 			cont.Log.Warn("webhook event enqueue failed", "event", event, "tenant_id", tenantID, "err", err)
 		}
@@ -197,7 +197,7 @@ func main() {
 		}
 	}()
 
-	cont.Log.Info("worker listening", "redis", cont.Cfg.RedisAddr)
+	cont.Log.Info("worker listening", "redis_configured", cont.Cfg.RedisAddr != "")
 	runErr := make(chan error, 1)
 	go func() { runErr <- srv.Run(mux) }()
 	select {

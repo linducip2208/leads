@@ -93,8 +93,8 @@ func Load() (*Config, error) {
 		}
 		c.SessionSecret = "dev-only-insecure-secret-change-me"
 	}
-	if c.IsProd() && len(c.SessionSecret) < 32 {
-		return nil, fmt.Errorf("SESSION_SECRET must be at least 32 bytes in production")
+	if c.IsProd() && !strongSecret(c.SessionSecret) {
+		return nil, fmt.Errorf("SESSION_SECRET must be a non-placeholder secret of at least 32 bytes in production")
 	}
 	c.EncryptionKey = env("APP_ENCRYPTION_KEY", "")
 	if c.EncryptionKey == "" && !c.IsProd() {
@@ -102,8 +102,8 @@ func Load() (*Config, error) {
 		// dedicated key so rotating sessions does not destroy stored credentials.
 		c.EncryptionKey = c.SessionSecret
 	}
-	if c.IsProd() && len(c.EncryptionKey) < 32 {
-		return nil, fmt.Errorf("APP_ENCRYPTION_KEY must be at least 32 bytes in production")
+	if c.IsProd() && !strongSecret(c.EncryptionKey) {
+		return nil, fmt.Errorf("APP_ENCRYPTION_KEY must be a non-placeholder secret of at least 32 bytes in production")
 	}
 	c.AllowInsecureWebhooks = envBool("ALLOW_INSECURE_WEBHOOKS", false)
 	if c.IsProd() && c.AllowInsecureWebhooks {
@@ -211,4 +211,23 @@ func envBool(key string, def bool) bool {
 		return false
 	}
 	return def
+}
+
+func strongSecret(v string) bool {
+	if len(v) < 32 {
+		return false
+	}
+	lower := strings.ToLower(v)
+	for _, marker := range []string{"change-me", "changeme", "insecure", "replace-this", "example-secret", "your-secret"} {
+		if strings.Contains(lower, marker) {
+			return false
+		}
+	}
+	first := v[0]
+	for i := 1; i < len(v); i++ {
+		if v[i] != first {
+			return true
+		}
+	}
+	return false
 }

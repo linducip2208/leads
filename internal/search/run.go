@@ -533,7 +533,7 @@ func (r *Runner) persistNew(ctx context.Context, j *Job, cand source.RawLead, n 
 			VALUES ($1,'lead.qualified',$2,$3,$4,$5)`,
 			tid, n.Name+" qualified ("+itoa(score)+")", leadID, companyID, nullUUID(j.Search.UserID))
 		if d.Emit != nil {
-			d.Emit(tid, "lead.qualified", map[string]any{
+			d.Emit(ctx, tid, "lead.qualified", map[string]any{
 				"lead_id": leadID, "company": n.Name, "score": score, "search_id": j.Search.ID,
 			})
 		}

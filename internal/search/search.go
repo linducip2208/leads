@@ -70,7 +70,7 @@ type Deps struct {
 	Enricher enrichment.Provider
 	// Emit fans out platform events (search.completed, lead.qualified) to
 	// webhooks. Nil disables (tests, benchmarks, imports).
-	Emit func(tenantID, event string, payload map[string]any)
+	Emit func(ctx context.Context, tenantID, event string, payload map[string]any)
 }
 
 // SourceStat tracks per-source discovery telemetry for the search report.
@@ -338,7 +338,7 @@ func (r *Runner) Finish(ctx context.Context, j *Job, status, errMsg string) {
 		FROM lead_searches s WHERE s.id=$1`,
 		j.Search.ID, j.crawled.Load(), j.crawled.Load(), j.failed.Load())
 	if r.deps.Emit != nil && status == "completed" {
-		r.deps.Emit(j.Search.TenantID, "search.completed", map[string]any{
+		r.deps.Emit(ctx, j.Search.TenantID, "search.completed", map[string]any{
 			"search_id": j.Search.ID, "found": j.found.Load(), "saved": j.saved.Load(),
 			"qualified": j.qualified.Load(), "failed": j.failed.Load(),
 		})

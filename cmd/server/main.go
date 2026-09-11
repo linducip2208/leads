@@ -88,7 +88,7 @@ func main() {
 
 	errCh := make(chan error, 1)
 	go func() {
-		cont.Log.Info("http server listening", "addr", cont.Cfg.Addr, "app_url", cont.Cfg.AppURL)
+		cont.Log.Info("http server listening", "addr", cont.Cfg.Addr)
 		errCh <- srv.ListenAndServe()
 	}()
 

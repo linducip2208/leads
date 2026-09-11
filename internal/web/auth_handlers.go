@@ -180,12 +180,14 @@ func (s *Server) renderHTTPError(w http.ResponseWriter, r *http.Request, he *web
 	s.renderError(w, r, he)
 }
 
-func (s *Server) mailVerifyLink(email, token string) {
-	s.Log.Info("verification email", "to", email, "link", s.appURL()+"/verify-email?token="+token)
+func (s *Server) mailVerifyLink(email, _ string) {
+	// Never log the verification URL: the token is a bearer credential.
+	s.Log.Info("verification email queued", "to", email)
 }
 
-func (s *Server) mailResetLink(email, token string) {
-	s.Log.Info("password reset email", "to", email, "link", s.appURL()+"/reset-password?token="+token)
+func (s *Server) mailResetLink(email, _ string) {
+	// Never log the reset URL: the token is a bearer credential.
+	s.Log.Info("password reset email queued", "to", email)
 }
 
 func (s *Server) appURL() string {
