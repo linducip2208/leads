@@ -26,6 +26,9 @@ func (s *Server) routes() {
 	s.teamRoutes()
 	s.settingsAPIKeysRoutes()
 	s.apiRoutes()
+	if s.Cfg.PprofEnabled {
+		s.pprofRoutes()
+	}
 
 	// static
 	s.Router.MountPrefix("/static/", http.StripPrefix("/static/", s.staticHandler()))

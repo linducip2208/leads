@@ -55,6 +55,7 @@ type Config struct {
 	CrawlTimeout          string
 	CrawlMaxPages         int
 	CrawlMaxDepth         int
+	PprofEnabled          bool
 }
 
 // New builds the server with all routes registered.

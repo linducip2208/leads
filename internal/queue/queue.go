@@ -221,3 +221,31 @@ func LastBeat(ctx context.Context, addr, key string) (t time.Time, ok bool) {
 	}
 	return t, true
 }
+
+// CountRecentBeats counts live heartbeat keys under prefix. It intentionally
+// reads timestamps rather than trusting key existence so stale keys are not
+// presented as healthy during Redis recovery.
+func CountRecentBeats(ctx context.Context, addr, prefix string, maxAge time.Duration) (int, error) {
+	rdb := redis.NewClient(&redis.Options{Addr: addr})
+	defer rdb.Close()
+	if maxAge <= 0 {
+		maxAge = 60 * time.Second
+	}
+	now := time.Now()
+	var count int
+	iter := rdb.Scan(ctx, 0, prefix+"*", 0).Iterator()
+	for iter.Next(ctx) {
+		value, err := rdb.Get(ctx, iter.Val()).Result()
+		if err != nil {
+			continue
+		}
+		t, err := time.Parse(time.RFC3339, value)
+		if err == nil && now.Sub(t) >= 0 && now.Sub(t) <= maxAge {
+			count++
+		}
+	}
+	if err := iter.Err(); err != nil {
+		return 0, err
+	}
+	return count, nil
+}

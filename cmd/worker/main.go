@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -182,9 +183,11 @@ func main() {
 	go func() {
 		t := time.NewTicker(10 * time.Second)
 		defer t.Stop()
+		workerBeatKey := "leadforge:worker:hb:" + strconv.Itoa(os.Getpid())
 		for {
 			beatCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
 			_ = queue.Beat(beatCtx, cont.Cfg.RedisAddr, "leadforge:worker:hb", 30*time.Second)
+			_ = queue.Beat(beatCtx, cont.Cfg.RedisAddr, workerBeatKey, 30*time.Second)
 			cancel()
 			select {
 			case <-ctx.Done():

@@ -59,6 +59,9 @@ func (s *Server) handleAdminHealth(w http.ResponseWriter, r *http.Request) {
 	}
 	// worker + scheduler
 	wst, wdet := hbAge(ctx, s.Cfg.RedisAddr, "leadforge:worker:hb")
+	if n, err := queue.CountRecentBeats(ctx, s.Cfg.RedisAddr, "leadforge:worker:hb:", 60*time.Second); err == nil && n > 0 {
+		wdet = itoa(n) + " active worker(s); " + wdet
+	}
 	d.Rows = append(d.Rows, admin.HealthRow{Name: "Worker", Status: wst, Detail: wdet})
 	sst, sdet := hbAge(ctx, s.Cfg.RedisAddr, "leadforge:scheduler:hb")
 	d.Rows = append(d.Rows, admin.HealthRow{Name: "Scheduler", Status: sst, Detail: sdet})

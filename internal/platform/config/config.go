@@ -58,6 +58,9 @@ type Config struct {
 	MaxConcurrentSearches int
 
 	AIEnabled bool
+	// PprofEnabled exposes runtime profiles only through the authenticated
+	// platform-admin route. It is disabled by default.
+	PprofEnabled bool
 
 	SMTPHost     string
 	SMTPPort     int
@@ -141,6 +144,7 @@ func Load() (*Config, error) {
 	c.MaxConcurrentSearches = envInt("TENANT_MAX_CONCURRENT_SEARCHES", 5)
 
 	c.AIEnabled = envBool("AI_ENABLED", false)
+	c.PprofEnabled = envBool("PPROF_ENABLED", false)
 
 	c.SMTPHost = env("SMTP_HOST", "")
 	c.SMTPPort = envInt("SMTP_PORT", 587)

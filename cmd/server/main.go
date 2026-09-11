@@ -52,6 +52,7 @@ func main() {
 		CrawlWorkers: cont.Cfg.CrawlerWorkers, CrawlDomain: cont.Cfg.CrawlerDomainConcurrency,
 		CrawlTimeout: cont.Cfg.CrawlerTimeout.String(), CrawlMaxPages: cont.Cfg.CrawlerMaxPagesPerSite,
 		CrawlMaxDepth: cont.Cfg.CrawlerMaxDepth,
+		PprofEnabled:  cont.Cfg.PprofEnabled,
 	}, cont.Log, cont.PG, authSvc, sess, csrfMgr)
 	ws.Queue = queue.NewClient(cont.Cfg.RedisAddr)
 	defer ws.Queue.Close()

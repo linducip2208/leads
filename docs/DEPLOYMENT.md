@@ -24,6 +24,11 @@ Copy `.env.example` to a protected environment file. Set production
 `CRAWLER_ALLOW_PRIVATE=false`, `ALLOW_INSECURE_WEBHOOKS=false`, and
 `AI_ENABLED=false` unless explicitly required.
 
+For short-lived diagnostics, set `PPROF_ENABLED=true`. Profiles are available
+only to authenticated users with the platform-admin permission under
+`/admin/pprof/`; keep the reverse proxy from exposing that path publicly and
+turn the setting off after collecting the profile.
+
 ## Migrate and start
 
 ```sh
