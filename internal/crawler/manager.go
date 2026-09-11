@@ -99,7 +99,11 @@ func (m *Manager) acquire(ctx context.Context) (release func(), ok bool) {
 		tok := hex.EncodeToString(b[:])
 		slot := m.dist.Acquire(ctx, tok)
 		if slot >= 0 {
-			return func() { m.dist.Release(context.Background(), slot, tok) }, true
+			return func() {
+				releaseCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+				defer cancel()
+				m.dist.Release(releaseCtx, slot, tok)
+			}, true
 		}
 		// redis denied/unreachable: fall through to local limiter
 	}

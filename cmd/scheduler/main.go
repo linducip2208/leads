@@ -52,7 +52,9 @@ func main() {
 		t := time.NewTicker(10 * time.Second)
 		defer t.Stop()
 		for {
-			_ = queue.Beat(context.WithoutCancel(ctx), cont.Cfg.RedisAddr, "leadforge:scheduler:hb", 30*time.Second)
+			beatCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+			_ = queue.Beat(beatCtx, cont.Cfg.RedisAddr, "leadforge:scheduler:hb", 30*time.Second)
+			cancel()
 			select {
 			case <-ctx.Done():
 				return
