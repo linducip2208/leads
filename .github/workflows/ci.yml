@@ -64,3 +64,5 @@ jobs:
           go build -o bin/scheduler ./cmd/scheduler
           go build -o bin/migrate ./cmd/migrate
           go build -o bin/benchmark-search ./cmd/benchmark-search
+          go build -o bin/crawler-test ./cmd/crawler-test
+          go build -o bin/doctor ./cmd/doctor

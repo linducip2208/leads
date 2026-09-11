@@ -32,6 +32,8 @@ build: ## Build all binaries into bin/
 	$(GO) build -o bin/scheduler ./cmd/scheduler
 	$(GO) build -o bin/migrate ./cmd/migrate
 	$(GO) build -o bin/benchmark-search ./cmd/benchmark-search
+	$(GO) build -o bin/crawler-test ./cmd/crawler-test
+	$(GO) build -o bin/doctor ./cmd/doctor
 
 test: ## Run all tests
 	$(GO) test ./...
@@ -73,3 +75,4 @@ release-check: ## Run the production release gate
 	$(GO) test ./...
 	$(GO) test -race ./...
 	$(MAKE) build
+	$(GO) run ./cmd/migrate up

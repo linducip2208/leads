@@ -55,6 +55,17 @@ func (s *Server) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	_, _ = fmt.Fprintf(w, "leadforge_crawls_failed_total %d\n", snap.CrawlFailed)
 	_, _ = fmt.Fprintf(w, "leadforge_leads_created_total %d\n", snap.LeadsCreated)
 	_, _ = fmt.Fprintf(w, "leadforge_duplicates_total %d\n", snap.Duplicates)
+	_, _ = fmt.Fprintf(w, "leadforge_email_sent_total %d\n", snap.EmailSent)
+	_, _ = fmt.Fprintf(w, "leadforge_email_failed_total %d\n", snap.EmailFailed)
+	_, _ = fmt.Fprintf(w, "leadforge_webhooks_failed_total %d\n", snap.WebhooksFailed)
+	_, _ = fmt.Fprintf(w, "leadforge_browser_fallback_total %d\n", snap.BrowserFallback)
+	if queues, err := queue.Inspect(s.Cfg.RedisAddr); err == nil {
+		depth := 0
+		for _, q := range queues {
+			depth += q.Pending + q.Active + q.Retry
+		}
+		_, _ = fmt.Fprintf(w, "leadforge_queue_depth %d\n", depth)
+	}
 	_, _ = fmt.Fprintf(w, "leadforge_goroutines %d\n", runtime.NumGoroutine())
 }
 

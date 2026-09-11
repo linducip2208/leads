@@ -43,7 +43,8 @@ func (s *Server) handleAdminHealth(w http.ResponseWriter, r *http.Request) {
 	pgErr := s.PG.Ping(ctx)
 	pgMs := time.Since(pgT).Milliseconds()
 	if pgErr != nil {
-		d.Rows = append(d.Rows, admin.HealthRow{Name: "PostgreSQL", Status: "down", Detail: pgErr.Error()})
+		// Keep credentials, DSNs and driver internals out of the admin UI.
+		d.Rows = append(d.Rows, admin.HealthRow{Name: "PostgreSQL", Status: "down", Detail: "database unavailable", Latency: itoa64(pgMs) + " ms"})
 	} else {
 		var dbSize string
 		_ = s.PG.QueryRow(ctx, `SELECT pg_size_pretty(pg_database_size(current_database()))`).Scan(&dbSize)
@@ -52,9 +53,9 @@ func (s *Server) handleAdminHealth(w http.ResponseWriter, r *http.Request) {
 	// redis
 	rdT := time.Now()
 	if err := queue.PingRedis(ctx, s.Cfg.RedisAddr); err != nil {
-		d.Rows = append(d.Rows, admin.HealthRow{Name: "Redis", Status: "down", Detail: err.Error()})
+		d.Rows = append(d.Rows, admin.HealthRow{Name: "Redis", Status: "down", Detail: "cache unavailable", Latency: itoa64(time.Since(rdT).Milliseconds()) + " ms"})
 	} else {
-		d.Rows = append(d.Rows, admin.HealthRow{Name: "Redis", Status: "ok", Detail: s.Cfg.RedisAddr, Latency: itoa64(time.Since(rdT).Milliseconds()) + " ms"})
+		d.Rows = append(d.Rows, admin.HealthRow{Name: "Redis", Status: "ok", Detail: "reachable", Latency: itoa64(time.Since(rdT).Milliseconds()) + " ms"})
 	}
 	// worker + scheduler
 	wst, wdet := hbAge(ctx, s.Cfg.RedisAddr, "leadforge:worker:hb")

@@ -68,7 +68,7 @@ func (s *Server) loadLeadDetail(r *http.Request, leadID string) (*leads.DetailDa
 	}
 	// whatsapp from company
 	var wa string
-	_ = s.PG.QueryRow(r.Context(), `SELECT COALESCE(NULLIF(whatsapp,''), phone, '') FROM companies WHERE id=$1`, d.CompanyID).Scan(&wa)
+	_ = s.PG.QueryRow(r.Context(), `SELECT COALESCE(NULLIF(whatsapp,''), phone, '') FROM companies WHERE id=$1 AND tenant_id=$2`, d.CompanyID, id.TenantID).Scan(&wa)
 	if digits := digitsOnly(wa); digits != "" {
 		d.HasWhatsApp = true
 		d.WhatsAppLink = "https://wa.me/" + digits
@@ -131,7 +131,7 @@ func (s *Server) loadLeadDetail(r *http.Request, leadID string) (*leads.DetailDa
 	orows, _ := s.PG.Query(r.Context(), `
 		SELECT ps.name, lo.score, lo.reason
 		FROM lead_opportunities lo JOIN products_services ps ON ps.id = lo.product_id
-		WHERE lo.lead_id=$1 ORDER BY lo.score DESC`, d.ID)
+		WHERE lo.lead_id=$1 AND ps.tenant_id=$2 ORDER BY lo.score DESC`, d.ID, id.TenantID)
 	if orows != nil {
 		defer orows.Close()
 		for orows.Next() {

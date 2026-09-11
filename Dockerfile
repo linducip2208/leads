@@ -7,7 +7,9 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/server ./cmd/serve
  && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/worker ./cmd/worker \
  && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/scheduler ./cmd/scheduler \
  && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/migrate ./cmd/migrate \
- && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/benchmark-search ./cmd/benchmark-search
+ && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/benchmark-search ./cmd/benchmark-search \
+ && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/crawler-test ./cmd/crawler-test \
+ && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/doctor ./cmd/doctor
 
 FROM debian:bookworm-slim
 RUN apt-get update \

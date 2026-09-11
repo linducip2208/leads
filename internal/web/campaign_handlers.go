@@ -137,6 +137,20 @@ func (s *Server) handleCampaignCreate(w http.ResponseWriter, r *http.Request) {
 		fail("Select a sending account (add one under Settings → Email Accounts).")
 		return
 	}
+	var valid bool
+	if err := s.PG.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM email_accounts WHERE id=$1::uuid AND tenant_id=$2 AND is_active)`, accountID, id.TenantID).Scan(&valid); err != nil || !valid {
+		fail("Select a valid active sending account.")
+		return
+	}
+	if aud == "list" {
+		_ = s.PG.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM lists WHERE id=$1::uuid AND tenant_id=$2)`, audID, id.TenantID).Scan(&valid)
+	} else {
+		_ = s.PG.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM segments WHERE id=$1::uuid AND tenant_id=$2)`, audID, id.TenantID).Scan(&valid)
+	}
+	if !valid {
+		fail("Select a valid audience.")
+		return
+	}
 	var scheduled any
 	if v := strings.TrimSpace(r.FormValue("scheduled_at")); v != "" {
 		if t, err := time.Parse("2006-01-02T15:04", v); err == nil {
@@ -195,7 +209,7 @@ func (s *Server) handleCampaignDetail(w http.ResponseWriter, r *http.Request) {
 		if audType == "list" {
 			table = "lists"
 		}
-		_ = s.PG.QueryRow(r.Context(), `SELECT name FROM `+table+` WHERE id=$1::uuid`, *audID).Scan(&d.Audience)
+		_ = s.PG.QueryRow(r.Context(), `SELECT name FROM `+table+` WHERE id=$1::uuid AND tenant_id=$2`, *audID, id.TenantID).Scan(&d.Audience)
 		d.Audience = audType + ": " + d.Audience
 	}
 	srows, _ := s.PG.Query(r.Context(), `
@@ -214,7 +228,7 @@ func (s *Server) handleCampaignDetail(w http.ResponseWriter, r *http.Request) {
 		SELECT cc.id::text, COALESCE(NULLIF(ct.full_name,''), ct.email), ct.email, cc.status, cc.current_step,
 			COALESCE(to_char(cc.next_send_at,'DD Mon HH24:MI'),'')
 		FROM campaign_contacts cc JOIN contacts ct ON ct.id = cc.contact_id
-		WHERE cc.campaign_id=$1::uuid ORDER BY cc.created_at LIMIT 100`, cid)
+		WHERE cc.campaign_id=$1::uuid AND cc.tenant_id=$2 ORDER BY cc.created_at LIMIT 100`, cid, id.TenantID)
 	if crows != nil {
 		defer crows.Close()
 		for crows.Next() {
@@ -253,14 +267,14 @@ func (s *Server) handleCampaignLaunch(w http.ResponseWriter, r *http.Request) {
 	}
 	now := "running"
 	var scheduledAt *time.Time
-	_ = s.PG.QueryRow(r.Context(), `SELECT scheduled_at FROM campaigns WHERE id=$1::uuid`, cid).Scan(&scheduledAt)
+	_ = s.PG.QueryRow(r.Context(), `SELECT scheduled_at FROM campaigns WHERE id=$1::uuid AND tenant_id=$2`, cid, id.TenantID).Scan(&scheduledAt)
 	if scheduledAt != nil && scheduledAt.After(time.Now()) {
 		now = "scheduled"
 	}
 	_, _ = s.PG.Exec(r.Context(), `
 		UPDATE campaigns SET status=$2, started_at=COALESCE(started_at, now()),
 			total_contacts=(SELECT COUNT(*) FROM campaign_contacts WHERE campaign_id=$1::uuid)
-		WHERE id=$1::uuid`, cid, now)
+		WHERE id=$1::uuid AND tenant_id=$3`, cid, now, id.TenantID)
 	if s.Queue != nil && now == "running" {
 		_ = s.Queue.EnqueueOutreachSend(r.Context(), cid)
 	}
@@ -285,6 +299,12 @@ func (s *Server) handleCampaignAccount(w http.ResponseWriter, r *http.Request) {
 	id := webappIdentity(r)
 	cid := r.PathValue("id")
 	aid := strings.TrimSpace(r.FormValue("account_id"))
+	var valid bool
+	_ = s.PG.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM email_accounts WHERE id=$1::uuid AND tenant_id=$2 AND is_active)`, aid, id.TenantID).Scan(&valid)
+	if !valid {
+		webapp.RedirectFlash(w, r, "/campaigns/"+cid, flash.Error, "Select a valid active sending account.")
+		return
+	}
 	_, _ = s.PG.Exec(r.Context(), `UPDATE campaigns SET email_account_id=$3::uuid WHERE id=$1::uuid AND tenant_id=$2 AND status IN ('draft','paused','scheduled')`,
 		cid, id.TenantID, aid)
 	http.Redirect(w, r, "/campaigns/"+cid, http.StatusSeeOther)

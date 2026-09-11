@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
+	"leadforge/internal/metrics"
 	"leadforge/internal/platform/config"
 	"leadforge/internal/redisx"
 )
@@ -174,6 +175,7 @@ func (m *Manager) Crawl(ctx context.Context, startURL string, cfg SiteConfig) *S
 
 	// browser fallback: JS shell or thin content
 	if m.Browser.Available() && res.Pages > 0 && needsBrowser(res.Data, res.Pages) {
+		metrics.BrowserFallback.Add(1)
 		if bres := m.Browser.CrawlSite(ctx, m, startURL, cfg.MaxPages); bres != nil {
 			res.Data.Merge(bres.Data)
 			res.Pages += bres.Pages

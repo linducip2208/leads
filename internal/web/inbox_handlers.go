@@ -255,6 +255,11 @@ func (s *Server) validInboundAuth(r *http.Request, body []byte) bool {
 		}
 		return false
 	}
+	// Query-string shared-secret authentication is retained for local legacy
+	// adapters only. Production inbound delivery must be timestamped HMAC.
+	if strings.EqualFold(s.Cfg.Env, "production") {
+		return false
+	}
 	if want != "" && r.URL.Query().Get("key") != want {
 		return false
 	}

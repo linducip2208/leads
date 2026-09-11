@@ -128,8 +128,9 @@ func (s *Server) handleMemberRole(w http.ResponseWriter, r *http.Request) {
 	var n int
 	_ = s.PG.QueryRow(r.Context(), `SELECT COUNT(*) FROM users WHERE id=$1 AND tenant_id=$2`, uid, id.TenantID).Scan(&n)
 	var roleTenant *string
-	_ = s.PG.QueryRow(r.Context(), `SELECT tenant_id::text FROM roles WHERE id=$1`, roleID).Scan(&roleTenant)
-	if n == 0 || (roleTenant != nil && *roleTenant != id.TenantID) {
+	var roleSlug string
+	_ = s.PG.QueryRow(r.Context(), `SELECT tenant_id::text, slug FROM roles WHERE id=$1`, roleID).Scan(&roleTenant, &roleSlug)
+	if n == 0 || roleSlug == role.RoleSuperAdmin || (roleTenant != nil && *roleTenant != id.TenantID) {
 		webapp.RedirectFlash(w, r, "/settings/members", flash.Error, "Invalid member or role.")
 		return
 	}
@@ -199,9 +200,15 @@ func (s *Server) handleRoleCreate(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimSpace(r.FormValue("name"))
 	slug := strings.ToLower(strings.TrimSpace(r.FormValue("slug")))
 	perms := r.Form["perms"]
-	if name == "" || slug == "" {
+	if name == "" || slug == "" || slug == role.RoleSuperAdmin || slug == "*" {
 		s.handleRoles(w, r, "Name and slug are required.")
 		return
+	}
+	for _, p := range perms {
+		if p == "*" || p == role.AdminPlatform {
+			s.handleRoles(w, r, "Platform administrator permissions are reserved for platform staff.")
+			return
+		}
 	}
 	tx, err := s.PG.Begin(r.Context())
 	if err != nil {

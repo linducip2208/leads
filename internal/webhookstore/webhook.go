@@ -17,9 +17,9 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/google/uuid"
 	"leadforge/internal/crawler"
 	"leadforge/internal/crypto"
+	"leadforge/internal/metrics"
 )
 
 // Emit finds active webhooks subscribed to event and enqueues deliveries.
@@ -59,6 +59,18 @@ func Sign(secret, ts string, body []byte) string {
 	m.Write([]byte(ts + "."))
 	m.Write(body)
 	return hex.EncodeToString(m.Sum(nil))
+}
+
+// EventID is stable for the logical webhook delivery. Retries therefore carry
+// the same identifier and consumers can safely deduplicate them.
+func EventID(webhookID, event string, body []byte) string {
+	h := sha256.New()
+	_, _ = h.Write([]byte(webhookID))
+	_, _ = h.Write([]byte{0})
+	_, _ = h.Write([]byte(event))
+	_, _ = h.Write([]byte{0})
+	_, _ = h.Write(body)
+	return "evt_" + hex.EncodeToString(h.Sum(nil)[:16])
 }
 
 // ValidateTarget applies the outbound webhook SSRF and HTTPS policy before a
@@ -104,7 +116,7 @@ func Deliver(ctx context.Context, pool *pgxpool.Pool, appSecret, webhookID, even
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	eventID := uuid.NewString()
+	eventID := EventID(webhookID, event, body)
 	req.Header.Set("X-LeadForge-Event-ID", eventID)
 	req.Header.Set("X-LeadForge-Event", event)
 	req.Header.Set("X-LeadForge-Timestamp", ts)
@@ -135,6 +147,9 @@ func Deliver(ctx context.Context, pool *pgxpool.Pool, appSecret, webhookID, even
 }
 
 func record(ctx context.Context, pool *pgxpool.Pool, webhookID, event string, body []byte, status string, code int, errMsg string) {
+	if status == "failed" {
+		metrics.WebhooksFailed.Add(1)
+	}
 	payload := map[string]any{"event": event}
 	_ = json.Unmarshal(body, &payload)
 	_, _ = pool.Exec(ctx, `

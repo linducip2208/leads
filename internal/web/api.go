@@ -18,7 +18,8 @@ import (
 	"leadforge/internal/webapp"
 )
 
-var apiLimiter = httpx.NewRateLimiter(600, time.Minute)
+var apiLimiter = httpx.NewRateLimiter(600, time.Minute)        // per key
+var apiTenantLimiter = httpx.NewRateLimiter(3000, time.Minute) // aggregate tenant guard
 
 // apiKey holds a verified API key identity.
 type apiKey struct {
@@ -74,6 +75,10 @@ func (s *Server) apiAuth(scope string, next func(w http.ResponseWriter, r *http.
 		}
 		if revokedAt != nil || (expiresAt != nil && expiresAt.Before(time.Now())) {
 			writeAPIError(w, 401, "api key revoked or expired")
+			return
+		}
+		if !apiTenantLimiter.Allow(k.TenantID) {
+			writeAPIError(w, 429, "tenant rate limit exceeded")
 			return
 		}
 		k.Scopes = scopes

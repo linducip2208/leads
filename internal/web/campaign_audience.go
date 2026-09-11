@@ -21,7 +21,10 @@ func buildAudienceTx(ctx context.Context, pool *pgxpool.Pool, tenantID, campaign
 	}
 	var leadIDs []string
 	if audType == "list" {
-		rows, err := pool.Query(ctx, `SELECT lead_id::text FROM list_leads WHERE list_id=$1::uuid`, *audID)
+		rows, err := pool.Query(ctx, `
+			SELECT ll.lead_id::text FROM list_leads ll
+			JOIN lists l ON l.id=ll.list_id
+			WHERE ll.list_id=$1::uuid AND l.tenant_id=$2`, *audID, tenantID)
 		if err != nil {
 			return 0, err
 		}
@@ -33,7 +36,10 @@ func buildAudienceTx(ctx context.Context, pool *pgxpool.Pool, tenantID, campaign
 			}
 		}
 	} else {
-		rows, err := pool.Query(ctx, `SELECT lead_id::text FROM segment_members WHERE segment_id=$1::uuid`, *audID)
+		rows, err := pool.Query(ctx, `
+			SELECT sm.lead_id::text FROM segment_members sm
+			JOIN segments sg ON sg.id=sm.segment_id
+			WHERE sm.segment_id=$1::uuid AND sg.tenant_id=$2`, *audID, tenantID)
 		if err != nil {
 			return 0, err
 		}
@@ -52,7 +58,7 @@ func buildAudienceTx(ctx context.Context, pool *pgxpool.Pool, tenantID, campaign
 	rows, err := pool.Query(ctx, `
 		SELECT DISTINCT l.primary_contact_id::text
 		FROM leads l JOIN contacts ct ON ct.id = l.primary_contact_id
-		WHERE l.tenant_id=$1 AND l.id = ANY($2::uuid[])
+		WHERE l.tenant_id=$1 AND ct.tenant_id=$1 AND l.id = ANY($2::uuid[])
 			AND ct.email <> '' AND ct.email_status NOT IN ('invalid','disposable')
 			AND NOT EXISTS (SELECT 1 FROM suppression_list sl WHERE sl.tenant_id=$1 AND sl.email = ct.email)`,
 		tenantID, leadIDs)

@@ -120,6 +120,9 @@ func (s *Server) handleDealCreate(w http.ResponseWriter, r *http.Request) {
 	title := strings.TrimSpace(r.FormValue("title"))
 	companyID := strings.TrimSpace(r.FormValue("company_id"))
 	stageID := strings.TrimSpace(r.FormValue("stage_id"))
+	fail := func(msg string) {
+		webapp.RedirectFlash(w, r, "/deals/new", flash.Error, msg)
+	}
 	if title == "" || companyID == "" || stageID == "" {
 		pid := s.ensurePipelineCtx(r.Context(), id.TenantID)
 		companies, stages, owners, _ := s.dealFormOptions(r, pid)
@@ -137,18 +140,41 @@ func (s *Server) handleDealCreate(w http.ResponseWriter, r *http.Request) {
 		currency = "IDR"
 	}
 	var pipelineID, contactID, leadID, ownerID, expected any
-	_ = s.PG.QueryRow(r.Context(), `SELECT pipeline_id::text FROM pipeline_stages WHERE id=$1::uuid`, stageID).Scan(&pipelineID)
+	var valid bool
+	if err := s.PG.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM companies WHERE id=$1::uuid AND tenant_id=$2)`, companyID, id.TenantID).Scan(&valid); err != nil || !valid {
+		fail("Select a valid company.")
+		return
+	}
+	if err := s.PG.QueryRow(r.Context(), `
+		SELECT ps.pipeline_id::text FROM pipeline_stages ps
+		JOIN pipelines p ON p.id=ps.pipeline_id
+		WHERE ps.id=$1::uuid AND p.tenant_id=$2`, stageID, id.TenantID).Scan(&pipelineID); err != nil {
+		fail("Select a valid pipeline stage.")
+		return
+	}
 	if c := strings.TrimSpace(r.FormValue("contact_id")); c != "" {
+		if err := s.PG.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM contacts WHERE id=$1::uuid AND company_id=$2::uuid AND tenant_id=$3)`, c, companyID, id.TenantID).Scan(&valid); err != nil || !valid {
+			fail("Select a valid contact.")
+			return
+		}
 		contactID = c
 	} else {
 		_ = s.PG.QueryRow(r.Context(), `SELECT id::text FROM contacts WHERE company_id=$1::uuid AND tenant_id=$2 ORDER BY created_at LIMIT 1`, companyID, id.TenantID).Scan(&contactID)
 	}
 	if l := strings.TrimSpace(r.FormValue("lead_id")); l != "" {
+		if err := s.PG.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM leads WHERE id=$1::uuid AND company_id=$2::uuid AND tenant_id=$3)`, l, companyID, id.TenantID).Scan(&valid); err != nil || !valid {
+			fail("Select a valid lead.")
+			return
+		}
 		leadID = l
 	} else {
 		_ = s.PG.QueryRow(r.Context(), `SELECT id::text FROM leads WHERE company_id=$1::uuid AND tenant_id=$2 LIMIT 1`, companyID, id.TenantID).Scan(&leadID)
 	}
 	if o := strings.TrimSpace(r.FormValue("owner_id")); o != "" {
+		if err := s.PG.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM users WHERE id=$1::uuid AND tenant_id=$2 AND status='active')`, o, id.TenantID).Scan(&valid); err != nil || !valid {
+			fail("Select a valid owner.")
+			return
+		}
 		ownerID = o
 	} else {
 		ownerID = id.UserID

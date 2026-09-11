@@ -5,17 +5,18 @@ package outreach
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"leadforge/internal/crypto"
 	"leadforge/internal/mail"
+	"leadforge/internal/metrics"
 )
 
 // Deps are outreach dependencies.
@@ -65,10 +66,10 @@ func hmacEqual(a, b string) bool {
 	return diff == 0
 }
 
-func msgID(domain string) string {
-	var b [16]byte
-	_, _ = rand.Read(b[:])
-	return "<" + hex.EncodeToString(b[:]) + "@" + domain + ">"
+func msgID(domain, campaignID, stepID, contactID string) string {
+	seed := campaignID + ":" + stepID + ":" + contactID
+	sum := sha256.Sum256([]byte(seed))
+	return "<" + hex.EncodeToString(sum[:16]) + "@" + domain + ">"
 }
 
 func mailDomain(email string) string {
@@ -100,6 +101,13 @@ func RunBatch(ctx context.Context, d *Deps, sender mail.Sender, campaignID strin
 	if status != "running" {
 		return 0, nil
 	}
+	// A worker can disappear after claiming a contact. Requeue only claims
+	// that have been abandoned long enough to avoid racing a slow SMTP send.
+	_, _ = d.Pool.Exec(ctx, `
+		UPDATE campaign_contacts
+		SET status='pending', send_started_at=NULL, send_worker_id=''
+		WHERE campaign_id=$1::uuid AND status='sending'
+		  AND send_started_at < now() - interval '15 minutes'`, campaignID)
 	acc, err := loadAccount(ctx, d, tenantID, accountID)
 	if err != nil {
 		return 0, fmt.Errorf("mail account: %w", err)
@@ -162,6 +170,7 @@ func RunBatch(ctx context.Context, d *Deps, sender mail.Sender, campaignID strin
 	crows.Close()
 
 	sent := 0
+	sendWorkerID := fmt.Sprintf("pid-%d", os.Getpid())
 	for _, c := range contacts {
 		if ctx.Err() != nil {
 			break
@@ -222,28 +231,53 @@ func RunBatch(ctx context.Context, d *Deps, sender mail.Sender, campaignID strin
 		}
 		msg := mail.Message{
 			To: c.email, Subject: subject, Text: body,
-			Unsub: vars["unsubscribe_url"], MsgID: msgID(mailDomain(acc.FromEmail)),
+			Unsub: vars["unsubscribe_url"], MsgID: msgID(mailDomain(acc.FromEmail), campaignID, st.ID, c.contactID),
 		}
-		if err := sender.Send(acc, msg); err != nil {
-			d.Log.Warn("send failed", "to", c.email, "err", err)
-			if isHardBounce(err) {
-				_, _ = d.Pool.Exec(ctx, `UPDATE campaign_contacts SET status='bounced' WHERE id=$1::uuid`, c.ccID)
-				_, _ = d.Pool.Exec(ctx, `UPDATE contacts SET email_status='invalid' WHERE id=$1::uuid`, c.contactID)
-				_, _ = d.Pool.Exec(ctx, `INSERT INTO suppression_list (tenant_id, email, reason) VALUES ($1,$2,'bounce') ON CONFLICT DO NOTHING`, tenantID, c.email)
-				_, _ = d.Pool.Exec(ctx, `INSERT INTO email_messages (tenant_id, campaign_id, email_account_id, contact_id, direction, to_email, subject, body_text, status, error, message_id)
-					VALUES ($1,$2::uuid,$3::uuid,$4::uuid,'out',$5,$6,$7,'bounced',$8,$9)`,
-					tenantID, campaignID, accountID, c.contactID, c.email, subject, body, trunc(err.Error()), msg.MsgID)
-			} else {
-				_, _ = d.Pool.Exec(ctx, `UPDATE campaign_contacts SET status='failed' WHERE id=$1::uuid`, c.ccID)
-				_, _ = d.Pool.Exec(ctx, `INSERT INTO email_messages (tenant_id, campaign_id, email_account_id, contact_id, direction, to_email, subject, body_text, status, error, message_id)
-					VALUES ($1,$2::uuid,$3::uuid,$4::uuid,'out',$5,$6,$7,'failed',$8,$9)`,
-					tenantID, campaignID, accountID, c.contactID, c.email, subject, body, trunc(err.Error()), msg.MsgID)
-			}
+		// Claim immediately before SMTP. The conditional update is the
+		// cross-worker idempotency gate; no network call occurs in a DB tx.
+		var claimed bool
+		if err := d.Pool.QueryRow(ctx, `
+			UPDATE campaign_contacts
+			SET status='sending', send_started_at=now(), send_worker_id=$2
+			WHERE id=$1::uuid AND status IN ('pending','active')
+			RETURNING true`, c.ccID, sendWorkerID).Scan(&claimed); err != nil || !claimed {
 			continue
 		}
-		_, _ = d.Pool.Exec(ctx, `INSERT INTO email_messages (tenant_id, campaign_id, step_id, email_account_id, contact_id, direction, to_email, subject, body_text, status, sent_at, message_id)
-			VALUES ($1,$2::uuid,$3::uuid,$4::uuid,$5::uuid,'out',$6,$7,$8,'sent',now(),$9)`,
-			tenantID, campaignID, st.ID, accountID, c.contactID, c.email, subject, body, msg.MsgID)
+		var messageStatus string
+		if err := d.Pool.QueryRow(ctx, `
+			INSERT INTO email_messages
+				(tenant_id, campaign_id, step_id, email_account_id, contact_id, direction,
+				 to_email, subject, body_text, status, message_id)
+			VALUES ($1,$2::uuid,$3::uuid,$4::uuid,$5::uuid,'out',$6,$7,$8,'sending',$9)
+			ON CONFLICT (tenant_id, message_id) WHERE direction='out' AND message_id <> ''
+			DO UPDATE SET status = CASE WHEN email_messages.status='sent' THEN 'sent' ELSE 'sending' END,
+				error='', subject=EXCLUDED.subject, body_text=EXCLUDED.body_text
+			RETURNING status`, tenantID, campaignID, st.ID, accountID, c.contactID, c.email, subject, body, msg.MsgID).Scan(&messageStatus); err != nil {
+			_, _ = d.Pool.Exec(ctx, `UPDATE campaign_contacts SET status='failed', send_started_at=NULL, send_worker_id='' WHERE id=$1::uuid`, c.ccID)
+			d.Log.Warn("email delivery record failed", "campaign", campaignID, "contact", c.contactID, "err", err)
+			continue
+		}
+		if messageStatus == "sent" {
+			// The SMTP call succeeded in an earlier worker; finish the local
+			// state transition without sending the same Message-ID again.
+			_, _ = d.Pool.Exec(ctx, `UPDATE email_messages SET status='sent' WHERE tenant_id=$1 AND message_id=$2`, tenantID, msg.MsgID)
+		} else if err := sender.Send(acc, msg); err != nil {
+			metrics.EmailFailed.Add(1)
+			d.Log.Warn("send failed", "to", c.email, "err", err)
+			if isHardBounce(err) {
+				_, _ = d.Pool.Exec(ctx, `UPDATE campaign_contacts SET status='bounced', send_started_at=NULL, send_worker_id='' WHERE id=$1::uuid`, c.ccID)
+				_, _ = d.Pool.Exec(ctx, `UPDATE contacts SET email_status='invalid' WHERE id=$1::uuid`, c.contactID)
+				_, _ = d.Pool.Exec(ctx, `INSERT INTO suppression_list (tenant_id, email, reason) VALUES ($1,$2,'bounce') ON CONFLICT DO NOTHING`, tenantID, c.email)
+				_, _ = d.Pool.Exec(ctx, `UPDATE email_messages SET status='bounced', error=$3 WHERE tenant_id=$1 AND message_id=$2`, tenantID, msg.MsgID, trunc(err.Error()))
+			} else {
+				_, _ = d.Pool.Exec(ctx, `UPDATE campaign_contacts SET status='failed', send_started_at=NULL, send_worker_id='' WHERE id=$1::uuid`, c.ccID)
+				_, _ = d.Pool.Exec(ctx, `UPDATE email_messages SET status='failed', error=$3 WHERE tenant_id=$1 AND message_id=$2`, tenantID, msg.MsgID, trunc(err.Error()))
+			}
+			continue
+		} else {
+			metrics.EmailSent.Add(1)
+			_, _ = d.Pool.Exec(ctx, `UPDATE email_messages SET status='sent', sent_at=now(), error='' WHERE tenant_id=$1 AND message_id=$2`, tenantID, msg.MsgID)
+		}
 		// advance to next email step
 		nextIdx := idx + 1
 		nextDays := 0
@@ -255,9 +289,9 @@ func RunBatch(ctx context.Context, d *Deps, sender mail.Sender, campaignID strin
 			nextDays += steps[nextIdx].DayOff
 		}
 		if nextIdx >= len(steps) {
-			_, _ = d.Pool.Exec(ctx, `UPDATE campaign_contacts SET status='completed', current_step=$2 WHERE id=$1::uuid`, c.ccID, idx)
+			_, _ = d.Pool.Exec(ctx, `UPDATE campaign_contacts SET status='completed', current_step=$2, send_started_at=NULL, send_worker_id='' WHERE id=$1::uuid`, c.ccID, idx)
 		} else {
-			_, _ = d.Pool.Exec(ctx, `UPDATE campaign_contacts SET status='active', current_step=$2, next_send_at=now()+($3::int||' days')::interval WHERE id=$1::uuid`, c.ccID, nextIdx, nextDays)
+			_, _ = d.Pool.Exec(ctx, `UPDATE campaign_contacts SET status='active', current_step=$2, next_send_at=now()+($3::int||' days')::interval, send_started_at=NULL, send_worker_id='' WHERE id=$1::uuid`, c.ccID, nextIdx, nextDays)
 		}
 		sent++
 	}

@@ -2,12 +2,14 @@ package crawler
 
 import (
 	"context"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"leadforge/internal/fixsrv"
+	"leadforge/internal/platform/config"
 )
 
 func TestGuardBlocksPrivate(t *testing.T) {
@@ -146,6 +148,39 @@ func TestFixtureFlakyRetries(t *testing.T) {
 	}
 }
 
+func TestFixtureServiceUnavailableRetries(t *testing.T) {
+	fx, err := fixsrv.New()
+	if err != nil {
+		t.Skipf("no loopback: %v", err)
+	}
+	defer fx.Close()
+	res := CrawlSite(context.Background(), Guard{AllowPrivate: true}, nil, fx.URL+"/unavailable", fixCfg())
+	if res.Pages != 1 || len(res.Errors) != 0 {
+		t.Fatalf("503 should recover: pages=%d errors=%v", res.Pages, res.Errors)
+	}
+}
+
+func TestFixtureRobotsAndResponseVariants(t *testing.T) {
+	fx, err := fixsrv.New()
+	if err != nil {
+		t.Skipf("no loopback: %v", err)
+	}
+	defer fx.Close()
+	g := Guard{AllowPrivate: true}
+	blocked := CrawlSite(context.Background(), g, NewRobotsChecker(g, DefaultOptions()), fx.URL+"/robots-deny", fixCfg())
+	if blocked.Pages != 0 || len(blocked.Errors) == 0 || !strings.Contains(blocked.Errors[0], "robots") {
+		t.Fatalf("robots disallow not honored: %+v", blocked)
+	}
+	gzipResult := CrawlSite(context.Background(), g, nil, fx.URL+"/gzip", fixCfg())
+	if gzipResult.Pages != 1 || len(gzipResult.Data.Emails) != 1 {
+		t.Fatalf("gzip fixture failed: pages=%d emails=%v errors=%v", gzipResult.Pages, gzipResult.Data.Emails, gzipResult.Errors)
+	}
+	invalid := CrawlSite(context.Background(), g, nil, fx.URL+"/invalid", fixCfg())
+	if invalid.Pages != 1 {
+		t.Fatalf("invalid HTML should remain non-fatal: %+v", invalid)
+	}
+}
+
 func TestFixture404NoRetryStorm(t *testing.T) {
 	fx, err := fixsrv.New()
 	if err != nil {
@@ -173,6 +208,41 @@ func TestFixtureJSShellDetected(t *testing.T) {
 	res := CrawlSite(context.Background(), g, nil, fx.URL+"/js", fixCfg())
 	if !res.Data.JSRequired {
 		t.Fatalf("JS shell not detected (quality=%d)", QualityScore(res.Data, res.Pages))
+	}
+}
+
+func TestManagerHTTPOnlyWhenBrowserUnavailable(t *testing.T) {
+	fx, err := fixsrv.New()
+	if err != nil {
+		t.Skipf("no loopback: %v", err)
+	}
+	defer fx.Close()
+	cfg := &config.Config{CrawlerAllowPrivate: true, CrawlerGlobalWorkers: 1, CrawlerDomainConcurrency: 1,
+		CrawlerTimeout: 5 * time.Second, BrowserEnabled: false}
+	m := NewManager(cfg, nil)
+	defer m.Close()
+	res := m.Crawl(context.Background(), fx.URL+"/js", fixCfg())
+	if res.Pages != 1 || !res.Data.JSRequired {
+		t.Fatalf("HTTP-only fallback must finish safely: pages=%d js=%v errors=%v", res.Pages, res.Data.JSRequired, res.Errors)
+	}
+}
+
+func TestManagerBrowserFallbackWhenChromeEnabled(t *testing.T) {
+	if os.Getenv("LEADFORGE_RUN_BROWSER_TESTS") != "1" {
+		t.Skip("set LEADFORGE_RUN_BROWSER_TESTS=1 for an installed-Chrome integration test")
+	}
+	fx, err := fixsrv.New()
+	if err != nil {
+		t.Skipf("no loopback: %v", err)
+	}
+	defer fx.Close()
+	cfg := &config.Config{CrawlerAllowPrivate: true, CrawlerGlobalWorkers: 1, CrawlerDomainConcurrency: 1,
+		CrawlerTimeout: 10 * time.Second, BrowserEnabled: true, BrowserWorkers: 1, BrowserTimeout: 10 * time.Second, BrowserMaxPages: 2}
+	m := NewManager(cfg, nil)
+	defer m.Close()
+	res := m.Crawl(context.Background(), fx.URL+"/js", fixCfg())
+	if res.Pages == 0 {
+		t.Fatalf("browser fallback must not crash crawl: %v", res.Errors)
 	}
 }
 

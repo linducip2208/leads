@@ -19,3 +19,14 @@ func TestValidateTarget(t *testing.T) {
 		t.Fatalf("local development exception rejected: %v", err)
 	}
 }
+
+func TestEventIDIsStableAcrossRetries(t *testing.T) {
+	a := EventID("webhook-1", "lead.created", []byte(`{"id":"1"}`))
+	b := EventID("webhook-1", "lead.created", []byte(`{"id":"1"}`))
+	if a == "" || a != b {
+		t.Fatalf("event id must be stable: %q %q", a, b)
+	}
+	if a == EventID("webhook-1", "lead.updated", []byte(`{"id":"1"}`)) {
+		t.Fatal("different event must have different id")
+	}
+}

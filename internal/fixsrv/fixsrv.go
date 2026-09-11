@@ -14,6 +14,7 @@
 package fixsrv
 
 import (
+	"compress/gzip"
 	"fmt"
 	"net"
 	"net/http"
@@ -24,9 +25,10 @@ import (
 
 // Server is a fixture farm.
 type Server struct {
-	srv   *http.Server
-	URL   string
-	flaky atomic.Int64
+	srv                *http.Server
+	URL                string
+	flaky              atomic.Int64
+	serviceUnavailable atomic.Int64
 }
 
 // New starts the farm on 127.0.0.1:0 and returns it.
@@ -42,6 +44,30 @@ func New() (*Server, error) {
 		http.NotFound(w, r)
 	})
 	mux.HandleFunc("/flaky", f.flakyHandler)
+	mux.HandleFunc("/unavailable", f.unavailableHandler)
+	mux.HandleFunc("/robots.txt", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "User-agent: *\nDisallow: /robots-deny\n")
+	})
+	mux.HandleFunc("/robots-deny", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `<html><body><h1>Should not be fetched</h1></body></html>`)
+	})
+	mux.HandleFunc("/gzip", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Content-Encoding", "gzip")
+		z := gzip.NewWriter(w)
+		_, _ = z.Write([]byte(`<html><head><title>Gzip Co</title></head><body><a href="mailto:hello@gzip.co.id">hello@gzip.co.id</a></body></html>`))
+		_ = z.Close()
+	})
+	mux.HandleFunc("/large", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte(`<html><body><h1>Large</h1>`))
+		_, _ = w.Write([]byte(strings.Repeat("x", 6<<20)))
+		_, _ = w.Write([]byte(`</body></html>`))
+	})
+	mux.HandleFunc("/invalid", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte{0xff, 0xfe, '<', 'h', 't', 'm', 'l', '>'})
+	})
 	mux.HandleFunc("/slow", func(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-r.Context().Done():
@@ -113,6 +139,18 @@ func (f *Server) flakyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	fmt.Fprint(w, `<html><body><h1>Flaky Co</h1><p><a href="mailto:hi@flaky.co.id">hi@flaky.co.id</a></p></body></html>`)
+}
+
+func (f *Server) unavailableHandler(w http.ResponseWriter, r *http.Request) {
+	if f.serviceUnavailable.Add(1) <= 2 {
+		http.Error(w, "temporarily unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	f.writeCompanyPage(w, "Unavailable Co", "hello@unavailable.co.id")
+}
+
+func (f *Server) writeCompanyPage(w http.ResponseWriter, name, email string) {
+	fmt.Fprintf(w, `<html><head><title>%s</title></head><body><h1>%s</h1><a href="mailto:%s">%s</a></body></html>`, name, name, email, email)
 }
 
 func titleize(s string) string {
