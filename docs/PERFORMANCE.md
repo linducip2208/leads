@@ -9,7 +9,7 @@ not copied from an older report:
 |---|---:|---:|---:|---:|---:|
 | 100 mock candidates | 307 ms | 100 | 326.1/s | 8 | 3.0 MB |
 | 100 fixture HTTP seeds | 2.193 s | 1 (99 same-domain duplicates) | 45.6/s | 49 | 2.9 MB |
-| 1,000 mock candidates | 2.401 s | 1,000 | 416.6/s | 15 | 5.0 MB |
+| 1,000 mock candidates | 3.810 s | 1,000 | 262.5/s | 11 | 4.6 MB |
 | 10,000 mock candidates | 2m24.45s | 10,000 | 69.2/s | 15 | 7.6 MB |
 
 Environment: Windows x86_64, Go 1.26.2, PostgreSQL 18.3, Redis 7.2.5,
