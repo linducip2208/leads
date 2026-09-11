@@ -10,11 +10,15 @@ import (
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
+	"leadforge/internal/crawler"
 )
 
 // discoveryHTTP is a small bounded client for keyless discovery endpoints.
 // Real crawling uses the guarded client in internal/crawler.
-var discoveryHTTP = &http.Client{Timeout: 20 * time.Second}
+var discoveryHTTP = crawler.Guard{}.NewClient(crawler.Options{
+	Timeout: 20 * time.Second, MaxBodyBytes: 4 << 20,
+	UserAgent: "LeadForgeDiscovery/1.0 (+lead discovery)",
+})
 
 // WebsiteSearchSource discovers company websites via a keyless web search
 // (DuckDuckGo HTML). Results are candidates only; the crawler verifies them.

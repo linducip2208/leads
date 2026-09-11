@@ -136,7 +136,7 @@ func (s *Server) handleGoogleKeySave(w http.ResponseWriter, r *http.Request) {
 		s.handleIntegrations(w, r, "Paste an API key first.")
 		return
 	}
-	enc, err := crypto.Encrypt(s.Cfg.Secret, key)
+	enc, err := crypto.Encrypt(s.Cfg.EncryptionSecret, key)
 	if err != nil {
 		s.handleIntegrations(w, r, "Could not encrypt the key.")
 		return

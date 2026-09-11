@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"leadforge/internal/crawler"
 )
 
 func TestDisabled(t *testing.T) {
@@ -28,7 +30,7 @@ func TestOpenAICompatible(t *testing.T) {
 		})
 	}))
 	defer srv.Close()
-	p := &OpenAICompatible{BaseURL: srv.URL, APIKey: "k", Model: "test"}
+	p := &OpenAICompatible{BaseURL: srv.URL, APIKey: "k", Model: "test", Guard: crawler.Guard{AllowPrivate: true}}
 	res, err := p.Generate(context.Background(), Request{System: "s", Prompt: "hi"})
 	if err != nil {
 		t.Fatal(err)

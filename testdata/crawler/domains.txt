@@ -1,0 +1,6 @@
+# Safe public documentation/test domains. Add more domains locally; do not
+# commit scraped personal data or private customer targets.
+https://example.com
+https://www.iana.org
+https://www.w3.org
+https://www.rfc-editor.org

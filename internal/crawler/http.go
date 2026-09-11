@@ -11,9 +11,14 @@ import (
 
 // Options tunes the crawl HTTP client.
 type Options struct {
-	Timeout      time.Duration
-	MaxBodyBytes int64
-	UserAgent    string
+	Timeout         time.Duration
+	MaxBodyBytes    int64
+	UserAgent       string
+	MaxIdleConns    int
+	MaxIdlePerHost  int
+	MaxConnsPerHost int
+	IdleConnTimeout time.Duration
+	ResponseTimeout time.Duration
 }
 
 // DefaultOptions returns sane defaults.
@@ -22,6 +27,8 @@ func DefaultOptions() Options {
 		Timeout:      15 * time.Second,
 		MaxBodyBytes: 5 << 20,
 		UserAgent:    "LeadForgeBot/1.0 (+lead discovery; respects robots.txt)",
+		MaxIdleConns: 100, MaxIdlePerHost: 20, MaxConnsPerHost: 50,
+		IdleConnTimeout: 60 * time.Second, ResponseTimeout: 15 * time.Second,
 	}
 }
 
@@ -34,13 +41,30 @@ func (g Guard) NewClient(opt Options) *http.Client {
 	if opt.MaxBodyBytes <= 0 {
 		opt.MaxBodyBytes = 5 << 20
 	}
+	if opt.MaxIdleConns <= 0 {
+		opt.MaxIdleConns = 100
+	}
+	if opt.MaxIdlePerHost <= 0 {
+		opt.MaxIdlePerHost = 20
+	}
+	if opt.MaxConnsPerHost <= 0 {
+		opt.MaxConnsPerHost = 50
+	}
+	if opt.IdleConnTimeout <= 0 {
+		opt.IdleConnTimeout = 60 * time.Second
+	}
+	if opt.ResponseTimeout <= 0 {
+		opt.ResponseTimeout = 15 * time.Second
+	}
 	tr := &http.Transport{
 		DialContext:           g.DialContext,
 		TLSHandshakeTimeout:   10 * time.Second,
-		ResponseHeaderTimeout: 10 * time.Second,
+		ResponseHeaderTimeout: opt.ResponseTimeout,
 		ExpectContinueTimeout: 2 * time.Second,
-		MaxIdleConns:          50,
-		IdleConnTimeout:       60 * time.Second,
+		MaxIdleConns:          opt.MaxIdleConns,
+		MaxIdleConnsPerHost:   opt.MaxIdlePerHost,
+		MaxConnsPerHost:       opt.MaxConnsPerHost,
+		IdleConnTimeout:       opt.IdleConnTimeout,
 		TLSClientConfig:       &tls.Config{MinVersion: tls.VersionTLS12},
 	}
 	return &http.Client{
@@ -54,7 +78,7 @@ func (g Guard) NewClient(opt Options) *http.Client {
 			if err != nil {
 				return err
 			}
-			if _, err := g.CheckHost(req.Context(), u.Host); err != nil {
+			if _, err := g.CheckHost(req.Context(), u.Hostname()); err != nil {
 				return err
 			}
 			return nil

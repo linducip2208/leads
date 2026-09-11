@@ -163,9 +163,12 @@ templ AppShell(d *webapp.Renderer, id *webapp.Identity, page webapp.Page, conten
 							<div class="text-[11px] text-ink-3 truncate">{ id.Email }</div>
 						</div>
 						<div class="sb-label ml-auto">
-							<a href="/logout" title="Sign out" class="p-1.5 rounded-md text-ink-3 hover:text-ink hover:bg-[#f0f1f6] inline-block">
+							<form method="post" action="/logout" class="inline">
+								<input type="hidden" name="_token" value={ page.CSRFToken } />
+								<button type="submit" title="Sign out" class="p-1.5 rounded-md text-ink-3 hover:text-ink hover:bg-[#f0f1f6] inline-block">
 								@components.Icon("log-out", "w-4 h-4")
-							</a>
+								</button>
+							</form>
 						</div>
 					</div>
 				</div>

@@ -62,8 +62,19 @@ func main() {
 	}()
 
 	cont.Log.Info("scheduler started")
-	if err := sched.Run(); err != nil {
-		cont.Log.Error("scheduler failed", "err", err)
-		os.Exit(1)
+	runErr := make(chan error, 1)
+	go func() { runErr <- sched.Run() }()
+	select {
+	case err := <-runErr:
+		if err != nil {
+			cont.Log.Error("scheduler failed", "err", err)
+			os.Exit(1)
+		}
+	case <-ctx.Done():
+		cont.Log.Info("scheduler shutdown signal received")
+		sched.Shutdown()
+		if err := <-runErr; err != nil {
+			cont.Log.Error("scheduler shutdown failed", "err", err)
+		}
 	}
 }

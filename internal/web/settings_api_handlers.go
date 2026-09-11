@@ -146,8 +146,8 @@ func (s *Server) handleWebhooks(w http.ResponseWriter, r *http.Request, errMsg .
 func (s *Server) handleWebhookCreate(w http.ResponseWriter, r *http.Request) {
 	id := webappIdentity(r)
 	target := strings.TrimSpace(r.FormValue("url"))
-	if target == "" || (!strings.HasPrefix(target, "https://") && !strings.HasPrefix(target, "http://")) {
-		s.handleWebhooks(w, r, "A valid http(s) URL is required.")
+	if target == "" || (!strings.HasPrefix(target, "https://") && !(s.Cfg.AllowInsecureWebhooks && strings.HasPrefix(target, "http://"))) {
+		s.handleWebhooks(w, r, "A valid HTTPS URL is required.")
 		return
 	}
 	var events []string
@@ -168,7 +168,7 @@ func (s *Server) handleWebhookCreate(w http.ResponseWriter, r *http.Request) {
 	if secret == "" {
 		secret = webhookstore.RandomSecret()
 	}
-	enc, err := crypto.Encrypt(s.Cfg.Secret, secret)
+	enc, err := crypto.Encrypt(s.Cfg.EncryptionSecret, secret)
 	if err != nil {
 		s.handleWebhooks(w, r, "Could not store the secret.")
 		return

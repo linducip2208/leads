@@ -15,13 +15,13 @@ import (
 )
 
 var loginLimiter = httpx.NewRateLimiter(30, 10*60*1000*1000*1000) // 30 per 10min
+var loginAccountLimiter = httpx.NewRateLimiter(20, 10*60*1000*1000*1000)
 
 func (s *Server) authRoutes() {
 	s.Router.HandleFunc("GET", "/login", s.handleLoginPage)
 	s.Router.HandleFunc("POST", "/login", s.handleLoginSubmit)
 	s.Router.HandleFunc("GET", "/register", s.handleRegisterPage)
 	s.Router.HandleFunc("POST", "/register", s.handleRegisterSubmit)
-	s.Router.HandleFunc("GET", "/logout", s.handleLogout)
 	s.Router.HandleFunc("POST", "/logout", s.handleLogout)
 	s.Router.HandleFunc("GET", "/forgot-password", s.handleForgotPage)
 	s.Router.HandleFunc("POST", "/forgot-password", s.handleForgotSubmit)
@@ -40,11 +40,11 @@ func (s *Server) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
-	if !loginLimiter.Allow(httpx.ClientIP(r)) {
+	email := strings.TrimSpace(r.FormValue("email"))
+	if !loginLimiter.Allow(httpx.ClientIP(r)) || !loginAccountLimiter.Allow(strings.ToLower(email)) {
 		s.renderHTTPError(w, r, &webapp.HTTPError{Status: 429, Title: "Too many attempts", Message: "Please wait a few minutes and try again."})
 		return
 	}
-	email := r.FormValue("email")
 	password := r.FormValue("password")
 	u, err := s.Auth.Login(r.Context(), email, password)
 	if err != nil {

@@ -1,4 +1,5 @@
 # Binaries & vendored dev tools over GitHub's 100MB limit
+bin/
 tools/bin/
 *.pdb
 *.exe

@@ -40,10 +40,12 @@ func main() {
 	defer qcEmit.Close()
 	searchDeps := search.NewDeps(cont.PG, cont.Cfg, cont.Log, os.Getenv("GOOGLE_PLACES_API_KEY"))
 	searchDeps.Emit = func(tenantID, event string, payload map[string]any) {
-		webhookstore.Emit(context.Background(), cont.PG, tenantID, event, payload,
+		if err := webhookstore.Emit(context.Background(), cont.PG, tenantID, event, payload,
 			func(webhookID, ev string, body []byte) error {
 				return qcEmit.EnqueueWebhook(context.Background(), webhookID, ev, body)
-			})
+			}); err != nil {
+			cont.Log.Warn("webhook event enqueue failed", "event", event, "tenant_id", tenantID, "err", err)
+		}
 	}
 	runner := search.NewRunner(searchDeps)
 	sess := session.NewManager(cont.PG, cont.Cfg.SessionSecret, cont.Cfg.SessionTTL, cont.Cfg.IsProd())
@@ -67,7 +69,7 @@ func main() {
 		sess.Sweep(ctx)
 		return nil
 	})
-	outDeps := &outreach.Deps{Pool: cont.PG, Log: cont.Log, Secret: cont.Cfg.SessionSecret, AppURL: cont.Cfg.AppURL}
+	outDeps := &outreach.Deps{Pool: cont.PG, Log: cont.Log, Secret: cont.Cfg.EncryptionSecret(), AppURL: cont.Cfg.AppURL}
 	mux.HandleFunc(queue.TypeOutreachTick, func(ctx context.Context, _ *asynq.Task) error {
 		// promote due scheduled campaigns
 		_, _ = cont.PG.Exec(ctx, `UPDATE campaigns SET status='running', started_at=COALESCE(started_at,now()) WHERE status='scheduled' AND scheduled_at <= now()`)
@@ -79,13 +81,19 @@ func main() {
 		defer rows.Close()
 		qc := queue.NewClient(cont.Cfg.RedisAddr)
 		defer qc.Close()
+		var enqueueErr error
 		for rows.Next() {
 			var cid string
 			if err := rows.Scan(&cid); err == nil {
-				_ = qc.EnqueueOutreachSend(ctx, cid)
+				if err := qc.EnqueueOutreachSend(ctx, cid); err != nil && enqueueErr == nil {
+					enqueueErr = err
+				}
 			}
 		}
-		return rows.Err()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		return enqueueErr
 	})
 	mux.HandleFunc(queue.TypeOutreachSend, func(ctx context.Context, t *asynq.Task) error {
 		var p queue.OutreachPayload
@@ -105,10 +113,12 @@ func main() {
 			var tid string
 			_ = cont.PG.QueryRow(ctx, `UPDATE campaigns SET status='completed', completed_at=now() WHERE id=$1::uuid AND status='running' RETURNING tenant_id::text`, p.CampaignID).Scan(&tid)
 			if tid != "" {
-				webhookstore.Emit(ctx, cont.PG, tid, "campaign.completed", map[string]any{"campaign_id": p.CampaignID},
+				if err := webhookstore.Emit(ctx, cont.PG, tid, "campaign.completed", map[string]any{"campaign_id": p.CampaignID},
 					func(wid, ev string, body []byte) error {
 						return qcEmit.EnqueueWebhook(ctx, wid, ev, body)
-					})
+					}); err != nil {
+					cont.Log.Warn("campaign completion webhook enqueue failed", "campaign_id", p.CampaignID, "err", err)
+				}
 			}
 		}
 		return nil
@@ -142,7 +152,7 @@ func main() {
 		if err := json.Unmarshal(t.Payload(), &p); err != nil || p.WebhookID == "" {
 			return nil
 		}
-		return webhookstore.Deliver(ctx, cont.PG, cont.Cfg.SessionSecret, p.WebhookID, p.Event, p.Body)
+		return webhookstore.Deliver(ctx, cont.PG, cont.Cfg.EncryptionSecret(), p.WebhookID, p.Event, p.Body, cont.Cfg.AllowInsecureWebhooks)
 	})
 	mux.HandleFunc(queue.TypeWatchdog, func(ctx context.Context, _ *asynq.Task) error {
 		staleMin := cont.Cfg.WatchdogStaleMinutes
@@ -183,10 +193,22 @@ func main() {
 	}()
 
 	cont.Log.Info("worker listening", "redis", cont.Cfg.RedisAddr)
-	if err := srv.Run(mux); err != nil {
-		cont.Log.Error("worker failed", "err", err)
-		os.Exit(1)
+	runErr := make(chan error, 1)
+	go func() { runErr <- srv.Run(mux) }()
+	select {
+	case err := <-runErr:
+		if err != nil {
+			cont.Log.Error("worker failed", "err", err)
+			os.Exit(1)
+		}
+	case <-ctx.Done():
+		cont.Log.Info("worker shutdown signal received")
+		srv.Shutdown()
+		if err := <-runErr; err != nil {
+			cont.Log.Error("worker shutdown failed", "err", err)
+		}
 	}
+	runner.Manager().Close()
 }
 
 func markSearchFailed(ctx context.Context, cont *platform.Container, searchID, msg string) {

@@ -1,0 +1,17 @@
+[Unit]
+Description=LeadForge web server
+After=network-online.target postgresql.service redis.service
+
+[Service]
+User=leadforge
+Group=leadforge
+WorkingDirectory=/opt/leadforge
+EnvironmentFile=/etc/leadforge/leadforge.env
+ExecStart=/opt/leadforge/bin/server
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

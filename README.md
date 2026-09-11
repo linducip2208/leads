@@ -37,7 +37,7 @@ Packages:
 
 ## Requirements
 
-- Go 1.24+
+- Go 1.26.2 (the version used by `go.mod`, CI, and Docker)
 - PostgreSQL 14+ with `citext` extension (`CREATE EXTENSION citext;` is in migration 0001, needs a privileged user once)
 - Redis 6+
 - `templ` CLI (`go install github.com/a-h/templ/cmd/templ@latest`) for template changes
@@ -125,18 +125,6 @@ live SSE progress bar. Results land in `/leads`, `/companies`, `/people`.
   (personal > sales > contact > info, never noreply), classifies phones
   (mobile/landline; only mobiles are WhatsApp candidates), records tech
   evidence and drives deterministic opportunities (Ecommerce/CRM leads).
-
-## Crawler
-
-- Engine: Colly (async, per-domain parallelism + delay) with a guarded
-  transport (SSRF-safe dial, redirect revalidation, body cap); parsing via
-  goquery (emails incl. `mailto:`, phones, `wa.me`, socials, tech fingerprints).
-- Compliance: robots.txt honored (colly + pre-check), 750ms+ per-domain
-  politeness delay, retries with backoff on 429/5xx, timeouts everywhere.
-- Security: only `http/https`, no credentials in URL, blocks loopback, private
-  RFC1918, link-local (incl. cloud metadata `169.254.169.254`), multicast;
-  redirects re-resolved. `CRAWLER_ALLOW_PRIVATE=true` exists for local E2E
-  fixtures only.
 
 ## Sources
 
@@ -229,7 +217,10 @@ unless `AI_ENABLED=true` and a provider is configured.
 
 ```powershell
 make test   # go test ./...
+make race   # go test -race ./...
 make vet
+make doctor
+make release-check
 ```
 
 Unit: phone/domain normalization, dedupe helpers, scoring, HTML extractor,
@@ -249,15 +240,19 @@ go run ./cmd/benchmark-search --count=1000 --mode=mock   # DB pipeline, no netwo
 go run ./cmd/benchmark-search --count=10000 --mode=mock  # 10k simulation
 ```
 
-Reference (dev laptop, local PG): 100 http in ~2s; 1k mock in ~2s (~470/s);
-10k mock in ~21s (~470 leads/s, 14 peak goroutines, <8 MB RSS). Throughput is
-DB-bound; raise `SEARCH_PROCESS_WORKERS`/`DB_MAX_CONNS` to scale. `go test
--race` needs a cgo toolchain (absent on stock Windows; run in CI).
+Benchmark output must be recorded from the current environment; this repository
+does not claim a universal throughput number. Use `cmd/crawler-test` for polite
+public-domain validation and `cmd/benchmark-search` for 100/1,000/10,000
+fixture simulations. Record OS, Go version, CPU, RAM, worker count, database
+connections, duration, throughput, peak goroutines, and peak memory in a local
+release report.
 
 ## Production deployment
 
-- Set `APP_ENV=production`, strong `SESSION_SECRET`, managed Postgres + Redis.
-- Run migrations before boot; run `server`, `worker` (≥1), `scheduler` as
-  separate services behind a process supervisor.
-- `/ready` returns 503 unless Postgres **and** Redis are reachable.
-- Never enable `CRAWLER_ALLOW_PRIVATE` in production.
+See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md), [docs/RUNBOOK.md](docs/RUNBOOK.md),
+and [SECURITY.md](SECURITY.md). Set `APP_ENV=production`, strong
+`SESSION_SECRET`, dedicated `APP_ENCRYPTION_KEY`, and managed Postgres + Redis.
+Run migrations before boot; run `server`, `worker` (≥1), and `scheduler` as
+separate services. `/ready` returns 503 unless Postgres and Redis are
+reachable. Never enable `CRAWLER_ALLOW_PRIVATE` or
+`ALLOW_INSECURE_WEBHOOKS` in production.

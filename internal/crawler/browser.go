@@ -25,6 +25,8 @@ type BrowserPool struct {
 	slots       chan struct{}
 	allocOK     atomic.Bool
 	once        sync.Once
+	closeOnce   sync.Once
+	mu          sync.Mutex
 	allocCtx    context.Context
 	allocCancel context.CancelFunc
 }
@@ -71,9 +73,26 @@ func (p *BrowserPool) init() {
 		cancel()
 		return // Chrome unavailable: stay disabled, HTTP-only
 	}
+	p.mu.Lock()
 	p.allocCtx = allocCtx
 	p.allocCancel = cancel
+	p.mu.Unlock()
 	p.allocOK.Store(true)
+}
+
+// Close releases the allocator and all Chrome child processes. It is safe to
+// call more than once and is intentionally a no-op when Chrome was disabled.
+func (p *BrowserPool) Close() {
+	p.closeOnce.Do(func() {
+		p.mu.Lock()
+		cancel := p.allocCancel
+		p.allocCancel = nil
+		p.mu.Unlock()
+		if cancel != nil {
+			cancel()
+		}
+		p.allocOK.Store(false)
+	})
 }
 
 // Render loads url in a pooled tab and returns rendered HTML + final URL.

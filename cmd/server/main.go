@@ -43,6 +43,7 @@ func main() {
 	ws := web.New(web.Config{
 		AppName: cont.Cfg.AppName, Env: cont.Cfg.Env, Addr: cont.Cfg.Addr,
 		AppURL: cont.Cfg.AppURL, RedisAddr: cont.Cfg.RedisAddr, Secret: cont.Cfg.SessionSecret,
+		EncryptionSecret: cont.Cfg.EncryptionSecret(), AllowInsecureWebhooks: cont.Cfg.AllowInsecureWebhooks,
 		InboundKey: cont.Cfg.InboundKey, MaxSearches: cont.Cfg.MaxConcurrentSearches,
 		SearchWorkers: cont.Cfg.SearchProcessWorkers,
 		HasGoogleKey:  os.Getenv("GOOGLE_PLACES_API_KEY") != "",
@@ -104,6 +105,9 @@ func main() {
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		cont.Log.Error("graceful shutdown failed", "err", err)
+	}
+	if ws.Runner != nil && ws.Runner.Manager() != nil {
+		ws.Runner.Manager().Close()
 	}
 	for !sweepStopped.Load() {
 		time.Sleep(10 * time.Millisecond)

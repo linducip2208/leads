@@ -88,7 +88,13 @@ func (s *Server) apiAuth(scope string, next func(w http.ResponseWriter, r *http.
 
 func writeAPIError(w http.ResponseWriter, status int, msg string) {
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"code": status, "message": msg}})
+	code := "http_" + strconv.Itoa(status)
+	if statusText := http.StatusText(status); statusText != "" {
+		code = strings.ToLower(strings.ReplaceAll(statusText, " ", "_"))
+	}
+	_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{
+		"code": code, "message": msg, "request_id": w.Header().Get("X-Request-Id"),
+	}})
 }
 
 func writeAPIData(w http.ResponseWriter, data any, meta any) {
@@ -126,7 +132,8 @@ func (s *Server) apiLeadList(w http.ResponseWriter, r *http.Request, k *apiKey) 
 			q += " AND (l.created_at < $" + strconv.Itoa(m-1) + " OR (l.created_at = $" + strconv.Itoa(m-1) + " AND l.id < $" + strconv.Itoa(m) + "::uuid))"
 		}
 	}
-	q += " ORDER BY l.created_at DESC, l.id DESC LIMIT 101"
+	limit := apiPageLimit(r)
+	q += " ORDER BY l.created_at DESC, l.id DESC LIMIT " + strconv.Itoa(limit+1)
 	rows, err := s.PG.Query(r.Context(), q, args...)
 	if err != nil {
 		writeAPIError(w, 500, "query failed")
@@ -153,8 +160,8 @@ func (s *Server) apiLeadList(w http.ResponseWriter, r *http.Request, k *apiKey) 
 		}
 	}
 	meta := map[string]any{"has_more": false}
-	if len(items) > 100 {
-		items = items[:100]
+	if len(items) > limit {
+		items = items[:limit]
 		// recompute cursor from the new tail
 		meta["has_more"] = true
 		meta["cursor"] = nextCursor
@@ -175,10 +182,11 @@ func (s *Server) apiLeadDetail(w http.ResponseWriter, r *http.Request, k *apiKey
 
 func (s *Server) apiCompanyList(w http.ResponseWriter, r *http.Request, k *apiKey) {
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	limit := apiPageLimit(r)
 	rows, err := s.PG.Query(r.Context(), `
 		SELECT id::text, name, COALESCE(domain,''), COALESCE(city,''), lead_score
 		FROM companies WHERE tenant_id=$1 AND ($2='' OR name ILIKE '%'||$2||'%' OR domain ILIKE '%'||$2||'%')
-		ORDER BY created_at DESC LIMIT 100`, k.TenantID, q)
+		ORDER BY created_at DESC LIMIT `+strconv.Itoa(limit), k.TenantID, q)
 	if err != nil {
 		writeAPIError(w, 500, "query failed")
 		return
@@ -199,6 +207,17 @@ func (s *Server) apiCompanyList(w http.ResponseWriter, r *http.Request, k *apiKe
 		}
 	}
 	writeAPIData(w, items, nil)
+}
+
+func apiPageLimit(r *http.Request) int {
+	limit, err := strconv.Atoi(r.URL.Query().Get("limit"))
+	if err != nil || limit <= 0 {
+		return 100
+	}
+	if limit > 200 {
+		return 200
+	}
+	return limit
 }
 
 func (s *Server) apiCompanyDetail(w http.ResponseWriter, r *http.Request, k *apiKey) {
@@ -296,8 +315,15 @@ func (s *Server) apiSearchCreate(w http.ResponseWriter, r *http.Request, k *apiK
 		writeAPIError(w, 500, "could not create search")
 		return
 	}
-	if s.Queue != nil {
-		_ = s.Queue.EnqueueSearch(r.Context(), searchID)
+	if s.Queue == nil {
+		_, _ = s.PG.Exec(r.Context(), `UPDATE lead_searches SET status='failed', error='queue unavailable', updated_at=now() WHERE id=$1`, searchID)
+		writeAPIError(w, http.StatusServiceUnavailable, "queue unavailable")
+		return
+	}
+	if err := s.Queue.EnqueueSearch(r.Context(), searchID); err != nil {
+		_, _ = s.PG.Exec(r.Context(), `UPDATE lead_searches SET status='failed', error='queue unavailable', updated_at=now() WHERE id=$1`, searchID)
+		writeAPIError(w, http.StatusServiceUnavailable, "queue unavailable")
+		return
 	}
 	audit.Log(r.Context(), s.PG, k.TenantID, "", "search.create", "search", searchID, audit.IP(r))
 	w.WriteHeader(201)

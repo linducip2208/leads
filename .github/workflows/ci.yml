@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: leadforge_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd="pg_isready -U postgres -d leadforge_test"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    env:
+      TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/leadforge_test?sslmode=disable
+      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/leadforge_test?sslmode=disable
+      REDIS_ADDR: 127.0.0.1:6379
+      APP_ENV: test
+      SESSION_SECRET: ci-session-secret-at-least-32-bytes-long
+      APP_ENCRYPTION_KEY: ci-encryption-key-at-least-32-bytes-long
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.2'
+          cache: true
+      - name: Download modules
+        run: go mod download
+      - name: Apply fresh migrations
+        run: go run ./cmd/migrate up
+      - name: Format check
+        shell: bash
+        run: test -z "$(gofmt -l internal web cmd db)"
+      - name: Unit and integration tests
+        run: go test ./...
+      - name: Race tests
+        run: go test -race ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Build production binaries
+        run: |
+          mkdir -p bin
+          go build -o bin/server ./cmd/server
+          go build -o bin/worker ./cmd/worker
+          go build -o bin/scheduler ./cmd/scheduler
+          go build -o bin/migrate ./cmd/migrate
+          go build -o bin/benchmark-search ./cmd/benchmark-search

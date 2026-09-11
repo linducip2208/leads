@@ -111,7 +111,7 @@ func (s *Server) handleEmailAccountAdd(w http.ResponseWriter, r *http.Request) {
 	}
 	var passEnc []byte
 	if pw := r.FormValue("smtp_password"); pw != "" {
-		encStr, err := crypto.Encrypt(s.Cfg.Secret, pw)
+		encStr, err := crypto.Encrypt(s.Cfg.EncryptionSecret, pw)
 		if err != nil {
 			s.handleEmailAccounts(w, r, "Could not encrypt the password.")
 			return
@@ -145,7 +145,7 @@ func (s *Server) loadMailAccount(ctx context.Context, tenantID, accountID string
 		return a, "", err
 	}
 	if len(passEnc) > 0 {
-		pw, err := crypto.Decrypt(s.Cfg.Secret, string(passEnc))
+		pw, err := crypto.Decrypt(s.Cfg.EncryptionSecret, string(passEnc))
 		if err != nil {
 			return a, "", err
 		}

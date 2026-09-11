@@ -33,6 +33,7 @@ func (s *Server) routes() {
 	// health
 	s.Router.HandleFunc("GET", "/health", s.handleHealth)
 	s.Router.HandleFunc("GET", "/ready", s.handleReady)
+	s.Router.HandleFunc("GET", "/metrics", s.handleMetrics)
 
 	// landing
 	s.Router.HandleFunc("GET", "/landing", s.handleLanding)

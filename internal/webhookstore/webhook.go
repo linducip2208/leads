@@ -17,24 +17,33 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/google/uuid"
+	"leadforge/internal/crawler"
 	"leadforge/internal/crypto"
 )
 
 // Emit finds active webhooks subscribed to event and enqueues deliveries.
 // enqueue is injected (asynq client) to keep this package queue-agnostic.
-func Emit(ctx context.Context, pool *pgxpool.Pool, tenantID, event string, payload map[string]any, enqueue func(webhookID, event string, body []byte) error) {
+func Emit(ctx context.Context, pool *pgxpool.Pool, tenantID, event string, payload map[string]any, enqueue func(webhookID, event string, body []byte) error) error {
 	rows, err := pool.Query(ctx, `SELECT id::text FROM webhooks WHERE tenant_id=$1 AND is_active AND $2 = ANY(events)`, tenantID, event)
 	if err != nil {
-		return
+		return err
 	}
 	defer rows.Close()
 	body, _ := json.Marshal(map[string]any{"event": event, "data": payload, "at": time.Now().UTC().Format(time.RFC3339)})
+	var firstErr error
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err == nil {
-			_ = enqueue(id, event, body)
+			if err := enqueue(id, event, body); err != nil && firstErr == nil {
+				firstErr = err
+			}
 		}
 	}
+	if err := rows.Err(); err != nil && firstErr == nil {
+		firstErr = err
+	}
+	return firstErr
 }
 
 // RandomSecret generates a signing secret.
@@ -52,8 +61,22 @@ func Sign(secret, ts string, body []byte) string {
 	return hex.EncodeToString(m.Sum(nil))
 }
 
+// ValidateTarget applies the outbound webhook SSRF and HTTPS policy before a
+// request is built. allowInsecure is intended only for local development.
+func ValidateTarget(ctx context.Context, target string, allowInsecure bool) (string, error) {
+	guard := crawler.Guard{AllowPrivate: allowInsecure}
+	u, err := guard.ValidateAndCheckURL(ctx, target)
+	if err != nil {
+		return "", err
+	}
+	if u.Scheme != "https" && !allowInsecure {
+		return "", fmt.Errorf("webhook: https required")
+	}
+	return u.String(), nil
+}
+
 // Deliver POSTs one webhook with signature headers and records the outcome.
-func Deliver(ctx context.Context, pool *pgxpool.Pool, appSecret, webhookID, event string, body []byte) error {
+func Deliver(ctx context.Context, pool *pgxpool.Pool, appSecret, webhookID, event string, body []byte, allowInsecure ...bool) error {
 	var tenantID, targetURL string
 	var secretEnc []byte
 	err := pool.QueryRow(ctx, `SELECT tenant_id::text, url, secret_enc FROM webhooks WHERE id=$1 AND is_active`,
@@ -67,19 +90,33 @@ func Deliver(ctx context.Context, pool *pgxpool.Pool, appSecret, webhookID, even
 			secret = s
 		}
 	}
+	unsafeLocal := len(allowInsecure) > 0 && allowInsecure[0]
+	validatedTarget, err := ValidateTarget(ctx, targetURL, unsafeLocal)
+	if err != nil {
+		record(ctx, pool, webhookID, event, body, "failed", 0, "webhook target rejected")
+		return fmt.Errorf("webhook target rejected: %w", err)
+	}
+	guard := crawler.Guard{AllowPrivate: unsafeLocal}
 	ts := strconv.FormatInt(time.Now().Unix(), 10)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, targetURL, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, validatedTarget, bytes.NewReader(body))
 	if err != nil {
 		record(ctx, pool, webhookID, event, body, "failed", 0, err.Error())
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	eventID := uuid.NewString()
+	req.Header.Set("X-LeadForge-Event-ID", eventID)
+	req.Header.Set("X-LeadForge-Event", event)
+	req.Header.Set("X-LeadForge-Timestamp", ts)
+	// Legacy names remain for existing consumers during the hardening rollout.
 	req.Header.Set("X-Event", event)
 	req.Header.Set("X-Timestamp", ts)
 	if secret != "" {
-		req.Header.Set("X-Signature-256", Sign(secret, ts, body))
+		sig := Sign(secret, ts, body)
+		req.Header.Set("X-LeadForge-Signature", sig)
+		req.Header.Set("X-Signature-256", sig)
 	}
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := guard.NewClient(crawler.Options{Timeout: 10 * time.Second, MaxBodyBytes: 1 << 20})
 	resp, err := client.Do(req)
 	if err != nil {
 		record(ctx, pool, webhookID, event, body, "failed", 0, trunc(err.Error()))

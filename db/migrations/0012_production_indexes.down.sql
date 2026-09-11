@@ -1,0 +1,10 @@
+DROP INDEX IF EXISTS idx_tasks_tenant_assignee_status_due;
+DROP INDEX IF EXISTS idx_campaign_contacts_campaign_status_created;
+DROP INDEX IF EXISTS idx_lead_searches_tenant_status_created;
+DROP INDEX IF EXISTS idx_raw_leads_tenant_search_status;
+DROP INDEX IF EXISTS idx_leads_tenant_score_id;
+DROP INDEX IF EXISTS idx_leads_tenant_status_created;
+DROP INDEX IF EXISTS idx_contacts_tenant_phone_lookup;
+DROP INDEX IF EXISTS idx_contacts_tenant_email_lookup;
+DROP INDEX IF EXISTS idx_companies_tenant_lower_name_lookup;
+DROP INDEX IF EXISTS idx_companies_tenant_domain_lookup;

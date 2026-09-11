@@ -10,7 +10,10 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
+
+	"leadforge/internal/metrics"
 )
 
 type ctxKey int
@@ -35,12 +38,24 @@ func Chain(h http.Handler, mws ...Middleware) http.Handler {
 func RequestID(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id := r.Header.Get("X-Request-Id")
-		if id == "" {
+		if !validRequestID(id) {
 			id = newRequestID()
 		}
 		w.Header().Set("X-Request-Id", id)
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxRequestID, id)))
 	})
+}
+
+func validRequestID(id string) bool {
+	if len(id) < 8 || len(id) > 128 {
+		return false
+	}
+	for _, r := range id {
+		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '-' && r != '_' && r != '.' {
+			return false
+		}
+	}
+	return true
 }
 
 func newRequestID() string {
@@ -71,6 +86,7 @@ func Logger(log *slog.Logger) Middleware {
 				"dur_ms", time.Since(start).Milliseconds(),
 				"request_id", GetRequestID(r.Context()),
 			)
+			metrics.ObserveHTTP(time.Since(start))
 		})
 	}
 }
@@ -82,10 +98,11 @@ type statusWriter struct {
 }
 
 func (w *statusWriter) WriteHeader(code int) {
-	if !w.wrote {
-		w.status = code
-		w.wrote = true
+	if w.wrote {
+		return
 	}
+	w.status = code
+	w.wrote = true
 	w.ResponseWriter.WriteHeader(code)
 }
 
@@ -116,7 +133,7 @@ func BodyLimit(n int64) Middleware {
 }
 
 // SecureHeaders adds baseline security headers.
-func SecureHeaders() Middleware {
+func SecureHeaders(production ...bool) Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			h := w.Header()
@@ -124,6 +141,10 @@ func SecureHeaders() Middleware {
 			h.Set("X-Frame-Options", "DENY")
 			h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
 			h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+			h.Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
+			if len(production) > 0 && production[0] {
+				h.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+			}
 			next.ServeHTTP(w, r)
 		})
 	}
@@ -131,6 +152,7 @@ func SecureHeaders() Middleware {
 
 // RateLimiter is a simple fixed-window limiter keyed by string (ip or key).
 type RateLimiter struct {
+	mu      sync.Mutex
 	buckets map[string]*bucket
 	limit   int
 	window  time.Duration
@@ -148,6 +170,8 @@ func NewRateLimiter(limit int, window time.Duration) *RateLimiter {
 
 // Allow reports whether key may proceed; cleans stale entries occasionally.
 func (rl *RateLimiter) Allow(key string) bool {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
 	now := time.Now()
 	b, ok := rl.buckets[key]
 	if !ok || now.After(b.reset) {
@@ -162,6 +186,26 @@ func (rl *RateLimiter) Allow(key string) bool {
 	}
 	b.count++
 	return true
+}
+
+// Recover converts panics into a safe 500 response and keeps one bad request
+// from taking down the process.
+func Recover(log *slog.Logger) Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			defer func() {
+				if v := recover(); v != nil {
+					if log != nil {
+						log.Error("http panic recovered", "panic", v, "request_id", GetRequestID(r.Context()), "method", r.Method, "path", r.URL.Path)
+					}
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusInternalServerError)
+					_, _ = w.Write([]byte(`{"error":{"code":"internal_error","message":"internal server error"}}`))
+				}
+			}()
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 // ClientIP extracts client ip best-effort.

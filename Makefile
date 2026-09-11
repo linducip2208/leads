@@ -9,7 +9,7 @@ CSS_OUT = static/css/app.css
 # and place it at tools/bin/tailwindcss.exe (Windows) or tools/bin/tailwindcss.
 TAILWIND ?= tools/bin/tailwindcss.exe
 
-.PHONY: setup dev build test vet migrate migrate-down worker scheduler templ css seed
+.PHONY: setup dev build test race vet migrate migrate-down worker scheduler templ css seed bench crawler-test doctor release-check
 
 setup: ## Install deps, generate templates, migrate DB
 	$(GO) mod tidy
@@ -27,10 +27,17 @@ scheduler: ## Run periodic scheduler (needs Redis)
 
 build: ## Build all binaries into bin/
 	@mkdir -p bin
-	$(GO) build -o bin/ ./cmd/server ./cmd/worker ./cmd/scheduler ./cmd/migrate ./cmd/benchmark-search
+	$(GO) build -o bin/server ./cmd/server
+	$(GO) build -o bin/worker ./cmd/worker
+	$(GO) build -o bin/scheduler ./cmd/scheduler
+	$(GO) build -o bin/migrate ./cmd/migrate
+	$(GO) build -o bin/benchmark-search ./cmd/benchmark-search
 
 test: ## Run all tests
 	$(GO) test ./...
+
+race: ## Run all tests with the Go race detector
+	$(GO) test -race ./...
 
 bench: ## Scale simulation (COUNT=1000 MODE=mock)
 	$(GO) run ./cmd/benchmark-search --count=$(or $(COUNT),1000) --mode=$(or $(MODE),mock)
@@ -53,3 +60,16 @@ css: ## Rebuild static/css/app.css from web/assets (needs Tailwind standalone CL
 
 seed: ## Re-apply migrations (idempotent seeds included)
 	$(GO) run ./cmd/migrate up
+
+crawler-test: ## Polite real-world crawler validation (FILE=testdata/crawler/domains.txt)
+	$(GO) run ./cmd/crawler-test --file=$(or $(FILE),testdata/crawler/domains.txt) --workers=$(or $(WORKERS),5)
+
+doctor: ## Validate production configuration and dependencies
+	$(GO) run ./cmd/doctor
+
+release-check: ## Run the production release gate
+	gofmt -l internal web cmd db | grep -q '^$$'
+	$(GO) vet ./...
+	$(GO) test ./...
+	$(GO) test -race ./...
+	$(MAKE) build

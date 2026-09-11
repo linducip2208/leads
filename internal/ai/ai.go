@@ -11,7 +11,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
+
+	"leadforge/internal/crawler"
 )
 
 // Request is a generation request.
@@ -52,6 +55,7 @@ type OpenAICompatible struct {
 	APIKey  string
 	Model   string
 	Client  *http.Client
+	Guard   crawler.Guard
 }
 
 func (p *OpenAICompatible) Name() string { return "openai-compatible:" + p.Model }
@@ -62,7 +66,7 @@ func (p *OpenAICompatible) Generate(ctx context.Context, req Request) (Response,
 	}
 	model := p.Model
 	if model == "" {
-		model = "glm-4-flash"
+		return Response{}, fmt.Errorf("ai: model is not configured")
 	}
 	maxTokens := req.MaxTokens
 	if maxTokens <= 0 {
@@ -77,8 +81,12 @@ func (p *OpenAICompatible) Generate(ctx context.Context, req Request) (Response,
 		"model": model, "messages": msgs,
 		"max_tokens": maxTokens, "temperature": req.Temperature,
 	})
+	base, err := p.Guard.ValidateAndCheckURL(ctx, p.BaseURL)
+	if err != nil {
+		return Response{}, fmt.Errorf("ai: endpoint rejected: %w", err)
+	}
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		p.BaseURL+"/chat/completions", bytes.NewReader(body))
+		strings.TrimRight(base.String(), "/")+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
 		return Response{}, err
 	}
@@ -86,7 +94,7 @@ func (p *OpenAICompatible) Generate(ctx context.Context, req Request) (Response,
 	httpReq.Header.Set("Authorization", "Bearer "+p.APIKey)
 	client := p.Client
 	if client == nil {
-		client = &http.Client{Timeout: 60 * time.Second}
+		client = p.Guard.NewClient(crawler.Options{Timeout: 60 * time.Second, MaxBodyBytes: 4 << 20})
 	}
 	resp, err := client.Do(httpReq)
 	if err != nil {

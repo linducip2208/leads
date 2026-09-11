@@ -26,8 +26,9 @@ type Manager struct {
 	global chan struct{}
 
 	// dist is the cross-worker semaphore (nil = single process mode).
-	dist   *redisx.Semaphore
-	distOn bool
+	dist       *redisx.Semaphore
+	distOn     bool
+	distClient *redis.Client
 
 	coolMu    sync.Mutex
 	cooldowns map[string]time.Time
@@ -62,6 +63,7 @@ func NewManager(cfg *config.Config, pool *pgxpool.Pool) *Manager {
 	// Falls back to the local channel if Redis is unreachable.
 	if cfg.RedisAddr != "" && cfg.CrawlerGlobalWorkers > 0 {
 		rdb := redis.NewClient(&redis.Options{Addr: cfg.RedisAddr})
+		m.distClient = rdb
 		m.dist = redisx.NewSemaphore(rdb, "leadforge:crawl:permits", cfg.CrawlerGlobalWorkers, 60*time.Second)
 		m.distOn = true
 	}
@@ -70,6 +72,19 @@ func NewManager(cfg *config.Config, pool *pgxpool.Pool) *Manager {
 		Timeout: cfg.BrowserTimeout, MaxPages: cfg.BrowserMaxPages,
 	})
 	return m
+}
+
+// Close releases browser and Redis resources owned by the manager.
+func (m *Manager) Close() {
+	if m == nil {
+		return
+	}
+	if m.Browser != nil {
+		m.Browser.Close()
+	}
+	if m.distClient != nil {
+		_ = m.distClient.Close()
+	}
 }
 
 func (m *Manager) globalCap() int { return cap(m.global) }

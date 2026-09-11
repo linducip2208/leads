@@ -27,7 +27,7 @@ var (
 // ValidateURL parses and enforces scheme policy.
 func (g Guard) ValidateURL(rawurl string) (*url.URL, error) {
 	u, err := url.Parse(strings.TrimSpace(rawurl))
-	if err != nil || u.Host == "" {
+	if err != nil || u.Host == "" || u.Hostname() == "" {
 		return nil, ErrNoHost
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
@@ -39,9 +39,26 @@ func (g Guard) ValidateURL(rawurl string) (*url.URL, error) {
 	return u, nil
 }
 
+// ValidateAndCheckURL validates URL syntax and current DNS answers. The
+// guarded transport pins later dials to validated IPs to prevent DNS rebinding.
+func (g Guard) ValidateAndCheckURL(ctx context.Context, rawurl string) (*url.URL, error) {
+	u, err := g.ValidateURL(rawurl)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := g.CheckHost(ctx, u.Hostname()); err != nil {
+		return nil, err
+	}
+	return u, nil
+}
+
 // CheckHost resolves host and ensures every resolved IP is allowed.
 func (g Guard) CheckHost(ctx context.Context, host string) ([]net.IP, error) {
-	h := stripPort(host)
+	h := strings.TrimSuffix(strings.TrimSpace(stripPort(host)), ".")
+	h = strings.Trim(h, "[]")
+	if h == "" {
+		return nil, ErrNoHost
+	}
 	if ip := net.ParseIP(h); ip != nil {
 		if err := g.CheckIP(ip); err != nil {
 			return nil, err
@@ -63,6 +80,10 @@ func (g Guard) CheckHost(ctx context.Context, host string) ([]net.IP, error) {
 // CheckIP blocks loopback, private, link-local, multicast and unspecified
 // addresses (incl. cloud metadata 169.254.169.254 via link-local range).
 func (g Guard) CheckIP(ip net.IP) error {
+	// Explicitly block the cloud metadata address and its IPv4-mapped IPv6 form.
+	if ip.Equal(net.ParseIP("169.254.169.254")) || ip.Equal(net.ParseIP("::ffff:169.254.169.254")) {
+		return fmt.Errorf("%w: cloud metadata address", ErrBlockedIP)
+	}
 	if g.AllowPrivate {
 		if ip.IsUnspecified() || ip.IsMulticast() {
 			return fmt.Errorf("%w: %s", ErrBlockedIP, ip.String())

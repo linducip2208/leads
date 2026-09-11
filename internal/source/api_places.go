@@ -9,15 +9,25 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"leadforge/internal/crawler"
 )
 
 // CustomAPISource fetches candidates from a tenant-configured JSON endpoint.
 // Expected payload: {"results":[{...}]} or a bare JSON array of objects with
 // keys: name/company, website/domain/url, email, phone, address, city,
 // province/state, country, industry.
-type CustomAPISource struct{}
+type CustomAPISource struct {
+	Guard crawler.Guard
+}
 
-func NewCustomAPISource() *CustomAPISource { return &CustomAPISource{} }
+func NewCustomAPISource(allowPrivate ...bool) *CustomAPISource {
+	g := crawler.Guard{}
+	if len(allowPrivate) > 0 {
+		g.AllowPrivate = allowPrivate[0]
+	}
+	return &CustomAPISource{Guard: g}
+}
 
 func (c *CustomAPISource) Slug() string { return "custom_api" }
 func (c *CustomAPISource) Name() string { return "Custom API" }
@@ -34,13 +44,14 @@ func (c *CustomAPISource) Search(ctx context.Context, query SearchQuery) (<-chan
 	if strings.TrimSpace(query.APIURL) == "" {
 		return nil, fmt.Errorf("custom api source: no endpoint configured")
 	}
-	if !strings.HasPrefix(query.APIURL, "https://") && !strings.HasPrefix(query.APIURL, "http://") {
-		return nil, fmt.Errorf("custom api source: endpoint must be http(s)")
+	u, err := c.Guard.ValidateAndCheckURL(ctx, query.APIURL)
+	if err != nil {
+		return nil, fmt.Errorf("custom api source: endpoint rejected: %w", err)
 	}
 	out := make(chan RawLead, 64)
 	go func() {
 		defer close(out)
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, query.APIURL, nil)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 		if err != nil {
 			return
 		}
@@ -48,7 +59,7 @@ func (c *CustomAPISource) Search(ctx context.Context, query SearchQuery) (<-chan
 			req.Header.Set("Authorization", "Bearer "+key)
 		}
 		req.Header.Set("Accept", "application/json")
-		client := &http.Client{Timeout: 30 * time.Second}
+		client := c.Guard.NewClient(crawler.Options{Timeout: 30 * time.Second, MaxBodyBytes: 10 << 20})
 		resp, err := client.Do(req)
 		if err != nil || resp.StatusCode != http.StatusOK {
 			if resp != nil {
@@ -73,7 +84,7 @@ func (c *CustomAPISource) Search(ctx context.Context, query SearchQuery) (<-chan
 				Province:   firstNonEmpty(m["province"], m["state"], query.Province),
 				Country:    firstNonEmpty(m["country"], query.Country),
 				Industry:   firstNonEmpty(m["industry"], query.Industry),
-				SourceURL:  query.APIURL,
+				SourceURL:  u.String(),
 			}
 			if lead.Website != "" && !strings.Contains(lead.Website, "://") {
 				lead.Website = "https://" + lead.Website

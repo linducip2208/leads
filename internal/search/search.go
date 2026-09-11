@@ -220,7 +220,7 @@ func (r *Runner) Load(ctx context.Context, searchID string) (*Job, error) {
 				var cfg map[string]string
 				if json.Unmarshal(cfgRaw, &cfg) == nil {
 					if enc, ok := cfg["api_key_enc"]; ok && enc != "" {
-						if key, err := crypto.Decrypt(r.deps.Cfg.SessionSecret, enc); err == nil {
+						if key, err := crypto.Decrypt(r.deps.Cfg.EncryptionSecret(), enc); err == nil {
 							j.GoogleKey = key
 						}
 					} else if k, ok := cfg["api_key"]; ok {

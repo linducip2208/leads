@@ -3,10 +3,12 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"runtime"
 	"time"
 
+	"leadforge/internal/metrics"
 	"leadforge/internal/queue"
 	"leadforge/web/pages/landing"
 )
@@ -30,20 +32,9 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		Version: "1.0.0",
 		UptimeS: int64(time.Since(startTime).Seconds()),
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
-	defer cancel()
-	if err := s.PG.Ping(ctx); err != nil {
-		hr.Postgres = "down"
-		hr.Status = "degraded"
-	} else {
-		hr.Postgres = "ok"
-	}
-	if err := queue.PingRedis(ctx, s.Cfg.RedisAddr); err != nil {
-		hr.Redis = "down"
-		hr.Status = "degraded"
-	} else {
-		hr.Redis = "ok"
-	}
+	// Liveness must remain cheap and available while dependencies restart.
+	hr.Postgres = "unknown"
+	hr.Redis = "unknown"
 	var ms runtime.MemStats
 	runtime.ReadMemStats(&ms)
 	hr.MemoryMB = int64(ms.Alloc / (1 << 20))
@@ -51,6 +42,20 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(hr)
+}
+
+func (s *Server) handleMetrics(w http.ResponseWriter, _ *http.Request) {
+	snap := metrics.Snap()
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+	_, _ = fmt.Fprintf(w, "leadforge_http_requests_total %d\n", snap.HTTPRequests)
+	_, _ = fmt.Fprintf(w, "leadforge_http_request_duration_seconds_total %.6f\n", float64(snap.HTTPDurationMs)/1000)
+	_, _ = fmt.Fprintf(w, "leadforge_searches_total %d\n", snap.Searches)
+	_, _ = fmt.Fprintf(w, "leadforge_candidates_total %d\n", snap.Candidates)
+	_, _ = fmt.Fprintf(w, "leadforge_crawls_total %d\n", snap.Crawls)
+	_, _ = fmt.Fprintf(w, "leadforge_crawls_failed_total %d\n", snap.CrawlFailed)
+	_, _ = fmt.Fprintf(w, "leadforge_leads_created_total %d\n", snap.LeadsCreated)
+	_, _ = fmt.Fprintf(w, "leadforge_duplicates_total %d\n", snap.Duplicates)
+	_, _ = fmt.Fprintf(w, "leadforge_goroutines %d\n", runtime.NumGoroutine())
 }
 
 // handleReady fails when a critical dependency is unavailable.

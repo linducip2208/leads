@@ -20,7 +20,11 @@ type Config struct {
 	RedisAddr   string
 
 	SessionSecret string
-	SessionTTL    time.Duration
+	// EncryptionKey protects stored provider credentials and webhook secrets.
+	// It is intentionally separate from the session signing secret.
+	EncryptionKey         string
+	SessionTTL            time.Duration
+	AllowInsecureWebhooks bool
 
 	CrawlerWorkers           int
 	CrawlerDomainConcurrency int
@@ -86,6 +90,22 @@ func Load() (*Config, error) {
 		}
 		c.SessionSecret = "dev-only-insecure-secret-change-me"
 	}
+	if c.IsProd() && len(c.SessionSecret) < 32 {
+		return nil, fmt.Errorf("SESSION_SECRET must be at least 32 bytes in production")
+	}
+	c.EncryptionKey = env("APP_ENCRYPTION_KEY", "")
+	if c.EncryptionKey == "" && !c.IsProd() {
+		// Backward-compatible local development fallback. Production must use a
+		// dedicated key so rotating sessions does not destroy stored credentials.
+		c.EncryptionKey = c.SessionSecret
+	}
+	if c.IsProd() && len(c.EncryptionKey) < 32 {
+		return nil, fmt.Errorf("APP_ENCRYPTION_KEY must be at least 32 bytes in production")
+	}
+	c.AllowInsecureWebhooks = envBool("ALLOW_INSECURE_WEBHOOKS", false)
+	if c.IsProd() && c.AllowInsecureWebhooks {
+		return nil, fmt.Errorf("ALLOW_INSECURE_WEBHOOKS must be false in production")
+	}
 
 	c.CrawlerWorkers = envInt("CRAWLER_WORKERS", 20)
 	c.CrawlerDomainConcurrency = envInt("CRAWLER_DOMAIN_CONCURRENCY", 2)
@@ -129,11 +149,23 @@ func Load() (*Config, error) {
 	c.SMTPFrom = env("SMTP_FROM", "")
 
 	c.InboundKey = env("INBOUND_WEBHOOK_KEY", "")
+	if c.IsProd() && len(c.InboundKey) < 32 {
+		return nil, fmt.Errorf("INBOUND_WEBHOOK_KEY must be at least 32 bytes in production")
+	}
 
 	return c, nil
 }
 
 func (c *Config) IsProd() bool { return c.Env == "production" }
+
+// EncryptionSecret returns the key used for encrypted-at-rest values. The
+// session secret fallback preserves decryptability of existing local data.
+func (c *Config) EncryptionSecret() string {
+	if c.EncryptionKey != "" {
+		return c.EncryptionKey
+	}
+	return c.SessionSecret
+}
 
 func (c *Config) WorkerQueues() map[string]int {
 	// weighted concurrency per queue

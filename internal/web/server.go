@@ -35,28 +35,33 @@ type Server struct {
 
 // Config is the web server config subset.
 type Config struct {
-	AppName        string
-	Env            string
-	Addr           string
-	AppURL         string
-	RedisAddr      string
-	Secret         string
-	InboundKey     string
-	MaxSearches    int
-	SearchWorkers  int
-	HasGoogleKey   bool
-	CrawlGlobal    int
-	BrowserOn      bool
-	BrowserWorkers int
-	CrawlWorkers   int
-	CrawlDomain    int
-	CrawlTimeout   string
-	CrawlMaxPages  int
-	CrawlMaxDepth  int
+	AppName               string
+	Env                   string
+	Addr                  string
+	AppURL                string
+	RedisAddr             string
+	Secret                string
+	EncryptionSecret      string
+	AllowInsecureWebhooks bool
+	InboundKey            string
+	MaxSearches           int
+	SearchWorkers         int
+	HasGoogleKey          bool
+	CrawlGlobal           int
+	BrowserOn             bool
+	BrowserWorkers        int
+	CrawlWorkers          int
+	CrawlDomain           int
+	CrawlTimeout          string
+	CrawlMaxPages         int
+	CrawlMaxDepth         int
 }
 
 // New builds the server with all routes registered.
 func New(cfg Config, log *slog.Logger, pool *pgxpool.Pool, authSvc *auth.Service, sess *session.Manager, csrfMgr *csrf.Manager) *Server {
+	if cfg.EncryptionSecret == "" {
+		cfg.EncryptionSecret = cfg.Secret
+	}
 	s := &Server{
 		Cfg:     cfg,
 		Log:     log,
@@ -76,8 +81,9 @@ func (s *Server) Handler() http.Handler {
 	var h http.Handler = s.Router
 	h = httpx.Chain(h,
 		httpx.RequestID,
-		httpx.SecureHeaders(),
+		httpx.SecureHeaders(s.Cfg.Env == "production"),
 		httpx.BodyLimit(32<<20),
+		httpx.Recover(s.Log),
 		httpx.Logger(s.Log),
 	)
 	return h
